@@ -2,21 +2,16 @@ from PIL import Image, ImageDraw
 import wx
 
 def pilToWx(pil, alpha=True):
+	image = wx.Image(pil.size[0], pil.size[1])
+	image.SetData(pil.convert("RGB").tobytes())
 	if alpha:
-		image = apply( wx.EmptyImage, pil.size )
-		image.SetData( pil.convert( "RGB").tobytes() )
-		image.SetAlphaData(pil.convert("RGBA").tobytes()[3::4])
-	else:
-		image = wx.EmptyImage(pil.size[0], pil.size[1])
-		new_image = pil.convert('RGB')
-		data = new_image.tostring()
-		image.SetData(data)
+		image.SetAlpha(pil.convert("RGBA").tobytes()[3::4])
 	return image
 
 def wxToPil(image):
-	pil = Image.new('RGB', (image.GetWidth(), image.GetHeight()))
-	pil.fromstring(image.GetData())
-	return pil
+	return Image.frombytes("RGB",
+						   (image.GetWidth(), image.GetHeight()),
+						   bytes(image.GetData()))
 
 def createNewImg(w, h, color, alpha=False):
 	if (alpha):

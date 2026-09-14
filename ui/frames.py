@@ -4,8 +4,9 @@ import wx
 import wx.lib.scrolledpanel as scrolled
 
 import data
-import mappanel
-import tools
+
+from . import mappanel
+from . import tools
 
 class MapPanelFrame(wx.Frame):	
 	def __init__(self, *args, **kwargs):	
@@ -130,7 +131,8 @@ class GMFrame(MapPanelFrame):
 		return tb
 
 	def doClose(self):
-		exit(0)
+		self.Destroy()
+		wx.GetApp().ExitMainLoop()
 
 	def onFileNew(self, evt):
 		defaultDir, defaultFile = self.defaultDirAndFile()
@@ -219,7 +221,7 @@ class GMFrame(MapPanelFrame):
 		return os.path.split(lastPath)
 
 	def onGridToggle(self, evt):
-		self.panel.map.grid.visible = evt.Checked()
+		self.panel.map.grid.visible = evt.IsChecked()
 
 	def onGridVisibleUpdate(self, evt):		
 		gridExists = self.hasGrid() and (self.panel.map.grid.type != data.Grid.GRID_NONE)
@@ -271,11 +273,11 @@ class GMFrame(MapPanelFrame):
 	
 	def updateBrushSizeSlider(self, isGrid):
 		if (isGrid):
-			newValue = (self.brushSize.GetValue() * 10 / self.brushSize.GetMax())
+			newValue = (self.brushSize.GetValue() * 10 // self.brushSize.GetMax())
 			self.brushSize.SetRange(1, 10)
 			self.brushSize.SetValue(newValue)
 		else:
-			newValue = 5 + (self.brushSize.GetValue() * 495 / self.brushSize.GetMax())			
+			newValue = 5 + (self.brushSize.GetValue() * 495 // self.brushSize.GetMax())			
 			self.brushSize.SetRange(5, 500)
 			self.brushSize.SetValue(newValue)
 

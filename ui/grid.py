@@ -45,7 +45,7 @@ class SquareGrid(Grid):
 		gc.PopState()     
 
 	def getGridCoords(self, ptPixel):
-		return (ptPixel[0] / self.gridSize, ptPixel[1] / self.gridSize)
+		return (ptPixel[0] // self.gridSize, ptPixel[1] // self.gridSize)
 
 	def getGridUnitSize(self):
 		return (self.gridSize, self.gridSize)
@@ -61,4 +61,4 @@ class HexGrid(Grid):
 		return hex.pointToHexCoords(ptPixel, self.gridSize)
 
 	def getGridUnitSize(self):
-		return ((self.gridSize/4)*3, self.gridSize)
+		return ((self.gridSize // 4) * 3, self.gridSize)

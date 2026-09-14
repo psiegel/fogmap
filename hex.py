@@ -21,15 +21,15 @@ def pointInTriangle(pt, triangle):
 
 def pointToHexCoords(point, hexSize):
 	x, y = point
-	halfHex = hexSize/2
-	quarterHex = hexSize/4
+	halfHex = hexSize // 2
+	quarterHex = hexSize // 4
 	threeQuarterHex = quarterHex*3
 	
 	# Convert into squares
-	hexX = x / threeQuarterHex
+	hexX = x // threeQuarterHex
 	if (hexX%2 == 1):
 		y -= halfHex		
-	hexY = y / hexSize
+	hexY = y // hexSize
 		
 	# Check if we're out of the bounds of this hex
 	x = x % threeQuarterHex
@@ -78,13 +78,13 @@ def expandCircleToPoints(x, y, radius):
 	points.append(pt)
 	
 	# Up
-	for i in xrange(1, radius):
+	for i in range(1, radius):
 		pt = (pt[0], pt[1] - 1)
 		points.append(pt)
 		
 	# Up Left and Left
 	pt = (x, y)
-	for i in xrange(1, radius):
+	for i in range(1, radius):
 		if (pt[0] % 2 == 0):
 			pt = (pt[0]-1, pt[1]-1)
 		else:
@@ -92,12 +92,12 @@ def expandCircleToPoints(x, y, radius):
 		points.append(pt)
 		
 		tempPt = (pt[0], pt[1])
-		for j in xrange(1, i):
+		for j in range(1, i):
 			tempPt = (tempPt[0], tempPt[1]+1)
 			points.append(tempPt)
 
 		tempPt = (pt[0], pt[1])
-		for j in xrange(1, i):
+		for j in range(1, i):
 			if (tempPt[0]%2 == 0):
 				tempPt = (tempPt[0]+1, tempPt[1]-1)
 			else:
@@ -106,7 +106,7 @@ def expandCircleToPoints(x, y, radius):
 	
 	# Up Right and Right
 	pt = (x, y)
-	for i in xrange(1, radius):
+	for i in range(1, radius):
 		if (pt[0] % 2 == 0):
 			pt = (pt[0]+1, pt[1]-1)
 		else:
@@ -114,12 +114,12 @@ def expandCircleToPoints(x, y, radius):
 		points.append(pt)
 		
 		tempPt = (pt[0], pt[1])
-		for j in xrange(1, i):
+		for j in range(1, i):
 			tempPt = (tempPt[0], tempPt[1]+1)
 			points.append(tempPt)
 
 		tempPt = (pt[0], pt[1])
-		for j in xrange(1, i):
+		for j in range(1, i):
 			if (tempPt[0]%2 == 0):
 				tempPt = (tempPt[0]-1, tempPt[1]-1)
 			else:
@@ -128,13 +128,13 @@ def expandCircleToPoints(x, y, radius):
 	
 	# Down
 	pt = (x, y)
-	for i in xrange(1, radius):
+	for i in range(1, radius):
 		pt = (pt[0], pt[1] + 1)
 		points.append(pt)
 	
 	# Down Left
 	pt = (x, y)
-	for i in xrange(1, radius):
+	for i in range(1, radius):
 		if (pt[0] % 2 == 1):
 			pt = (pt[0]-1, pt[1]+1)
 		else:
@@ -142,7 +142,7 @@ def expandCircleToPoints(x, y, radius):
 		points.append(pt)
 		
 		tempPt = (pt[0], pt[1])
-		for j in xrange(1, i):
+		for j in range(1, i):
 			if (tempPt[0]%2 == 1):
 				tempPt = (tempPt[0]+1, tempPt[1]+1)
 			else:
@@ -151,7 +151,7 @@ def expandCircleToPoints(x, y, radius):
 				
 	# Down Right
 	pt = (x, y)
-	for i in xrange(1, radius):
+	for i in range(1, radius):
 		if (pt[0] % 2 == 1):
 			pt = (pt[0]+1, pt[1]+1)
 		else:
@@ -159,7 +159,7 @@ def expandCircleToPoints(x, y, radius):
 		points.append(pt)
 		
 		tempPt = (pt[0], pt[1])
-		for j in xrange(1, i):
+		for j in range(1, i):
 			if (tempPt[0]%2 == 1):
 				tempPt = (tempPt[0]-1, tempPt[1]+1)
 			else:
@@ -169,7 +169,7 @@ def expandCircleToPoints(x, y, radius):
 	return points
 
 def createHexPath(gc, size):
-	oneseg = size/4
+	oneseg = size // 4
 	twoseg = oneseg*2	# same as size/2
 
 	path = gc.CreatePath()
@@ -191,12 +191,12 @@ def drawHexGridToGc(gc, w, h, hexSize):
 
 	x = 0
 	y = 0
-	wInc = (hexSize/4) * 3
+	wInc = (hexSize // 4) * 3
 	
 	gc.PushState() 
 	while (y < h):
 		gc.PushState() 
-		hInc = hexSize/2
+		hInc = hexSize // 2
 		while (x < w):
 			gc.StrokePath(hexPath)
 			gc.Translate(wInc, hInc)
@@ -214,18 +214,15 @@ def fillHexCircleToGc(gc, center, radius, hexSize):
 	x, y = pointToHexCoords(center, hexSize)	
 	points = expandCircleToPoints(x, y, radius)
 	
-	if (points == [(0, 0)]):
-		p = 6
-		
 	w = hexSize
 	h = hexSize
 	for point in points:
 		w = max(w, hexSize * point[0])
 		h = max(h, hexSize * point[1])
-	wInc = (hexSize/4) * 3
+	wInc = (hexSize // 4) * 3
 
 	x = -wInc
-	y = -(hexSize/2)
+	y = -(hexSize // 2)
 	pt = (-1, -1)
 	
 	gc.PushState() 
@@ -233,7 +230,7 @@ def fillHexCircleToGc(gc, center, radius, hexSize):
 
 	while (y < h+hexSize):
 		gc.PushState() 
-		hInc = -hexSize/2
+		hInc = (-hexSize) // 2
 		while (x < w):
 			if (pt in points):
 				gc.DrawPath(hexPath)
@@ -250,7 +247,7 @@ def fillHexCircleToGc(gc, center, radius, hexSize):
 	gc.PopState() 
 
 def fillHexToImg(im, x, y, size, color):
-	oneseg = size/4
+	oneseg = size // 4
 	twoseg = oneseg*2	# same as size/2
 
 	points = [ (x, y+twoseg),
@@ -269,10 +266,10 @@ def fillHexeCircleToImage(im, center, radius, hexSize, color):
 	points = expandCircleToPoints(x, y, radius)
 		
 	w, h = im.size
-	wInc = (hexSize/4) * 3
+	wInc = (hexSize // 4) * 3
 
 	x = -wInc
-	y = -hexSize/2
+	y = (-hexSize) // 2
 	pt = (-1, -1)
 	
 	while (y < h+hexSize):
@@ -282,7 +279,7 @@ def fillHexeCircleToImage(im, center, radius, hexSize, color):
 				fillHexToImg(im, x, y+hInc, hexSize, color)
 			x += wInc
 			if (hInc == 0):
-				hInc = -(hexSize/2)
+				hInc = -(hexSize // 2)
 			else:
 				hInc = 0
 			pt = (pt[0]+1, pt[1])

@@ -1,5 +1,5 @@
-#!/usr/bin/python
-import optparse
+#!/usr/bin/env python3
+import argparse
 import wx
 from PIL import Image
 from lxml import etree
@@ -62,9 +62,8 @@ class ImageTestApp(wx.App):
 		self.writeSettings(settings)
 		root.append(settings)
 		
-		file = open(path, mode="w")
-		file.write(etree.tostring(root, pretty_print=True))
-		file.close()
+		with open(path, mode="wb") as f:
+			f.write(etree.tostring(root, pretty_print=True))
 
 	def setMap(self, map):
 		self.map = map
@@ -93,10 +92,10 @@ class ImageTestApp(wx.App):
 
 
 if __name__ == '__main__':
-	usage = "usage: fogmap [options]"
-	parser = optparse.OptionParser(version='%prog 1.0', usage=usage)
-	parser.add_option('-f', '--file', dest='file', default=None, metavar='FILE', help='Map file to open')	
-	options, args = parser.parse_args()
+	parser = argparse.ArgumentParser(prog='fogmap', description='Fog of war map tool.')
+	parser.add_argument('--version', action='version', version='%(prog)s 1.0')
+	parser.add_argument('-f', '--file', dest='file', default=None, metavar='FILE', help='Map file to open')
+	options = parser.parse_args()
 
 	app = ImageTestApp(options.file)
 	app.MainLoop()

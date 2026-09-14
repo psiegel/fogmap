@@ -2,8 +2,9 @@ import wx
 from lxml import etree
 
 import gfx
-import grid
 import data
+
+from . import grid
 
 class MapPanel(wx.Panel):	
 	def __init__(self, parent):
@@ -14,6 +15,7 @@ class MapPanel(wx.Panel):
 		self.map = None
 		self.grid = None
 		self.mapImg = None
+		self._buffer = wx.Bitmap.FromRGBA(1, 1)
 		
 		self.Bind(wx.EVT_SIZE, self.onSize)
 		self.Bind(wx.EVT_PAINT, self.onPaint)
@@ -35,7 +37,7 @@ class MapPanel(wx.Panel):
 
 	def onSize(self, evt):
 		w, h = self.GetClientSize()
-		self._buffer = wx.EmptyBitmapRGBA(w, h)
+		self._buffer = wx.Bitmap.FromRGBA(max(w, 1), max(h, 1))
 		self.Refresh()
 		
 	def onPaint(self, evt):
@@ -224,7 +226,7 @@ class PlayerMapPanel(MapPanel):
 	def _updateMap(self):
 		super(PlayerMapPanel, self)._updateMap()
 		if (self.mapImg != None):
-			self.mapImg.SetAlphaData(self.map.mask.tobytes())
+			self.mapImg.SetAlpha(self.map.mask.tobytes())
 			self.Refresh(False)
 			
 	def readSettings(self, settings):
@@ -336,7 +338,7 @@ class GMMapPanel(MapPanel):
 		super(GMMapPanel, self)._updateMap()
 		if (self.mapImg != None):
 			self.SetMinSize(self.mapImg.GetSize())
-			self.mapImg.SetAlphaData(self.map.alphaMask.tobytes())
+			self.mapImg.SetAlpha(self.map.alphaMask.tobytes())
 			self.Refresh()
 				
 	def _updateGrid(self):

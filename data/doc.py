@@ -119,11 +119,11 @@ class Map(object):
 		root.append(gridNode)
 
 		maskData = etree.Element("maskData", mode=self.mask.mode, width=str(self.mask.size[0]), height=str(self.mask.size[1]))
-		maskData.text = base64.b64encode(self.mask.tobytes())
+		maskData.text = base64.b64encode(self.mask.tobytes()).decode("ascii")
 		root.append(maskData)
 
 		alphaData = etree.Element("alphaMaskData", mode=self.alphaMask.mode, width=str(self.alphaMask.size[0]), height=str(self.alphaMask.size[1]))
-		alphaData.text = base64.b64encode(self.alphaMask.tobytes())
+		alphaData.text = base64.b64encode(self.alphaMask.tobytes()).decode("ascii")
 		root.append(alphaData)
 		
 		return root

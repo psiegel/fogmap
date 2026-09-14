@@ -3,8 +3,8 @@ from PIL import ImageDraw
 import hex
 
 def makeBoxCenteredOnPoint(ptx, pty, boxw, boxh):
-	x = ptx - boxw/2
-	y = pty - boxh/2
+	x = ptx - boxw // 2
+	y = pty - boxh // 2
 	return (x, y, x+boxw, y+boxh)
 
 class Brush(object):
@@ -28,7 +28,7 @@ class RoundFreehandBrush(Brush):
 		self.size = size   
 
 	def drawToGc(self, gc, x, y):
-		half = self.size/2
+		half = self.size // 2
 		gc.DrawEllipse(x-half, y-half, self.size, self.size)
 
 	def drawToImage(self, image, x, y, color):
@@ -49,7 +49,7 @@ class SquareFreehandBrush(Brush):
 		self.h = size
 
 	def drawToGc(self, gc, x, y):
-		gc.DrawRectangle(x-self.w/2, y-self.h/2, self.w, self.h)
+		gc.DrawRectangle(x - self.w // 2, y - self.h // 2, self.w, self.h)
 
 	def drawToImage(self, image, x, y, color):
 		draw = ImageDraw.Draw(image)
