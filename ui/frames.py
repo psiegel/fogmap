@@ -65,6 +65,8 @@ class GMFrame(MapPanelFrame):
 		scrollSizer.Add(self.panel, 1, wx.EXPAND)
 		self.scrollPanel.SetSizer(scrollSizer)
 		self.scrollPanel.SetupScrolling()
+		self.panel.setViewportListener(self.onViewportChanged)
+		self.onViewportChanged()
 		sizer.Add(self.scrollPanel, 1, wx.EXPAND)
 
 		self.SetSizer(sizer)
@@ -108,6 +110,18 @@ class GMFrame(MapPanelFrame):
 		self.Bind(wx.EVT_UPDATE_UI, self.onGridSettingsUpdate, id=202)
 		self.menuBar.Append(gridMenu, "Grid")
 
+		# View Menu.  Well clear of the 301+ range the recent files menu uses.
+		viewMenu = wx.Menu()
+		viewMenu.Append(1001, "Show Player Viewport\tCTRL+B",
+						"Outline the area the players can currently see.", wx.ITEM_CHECK)
+		self.Bind(wx.EVT_MENU, self.onViewportToggle, id=1001)
+		self.Bind(wx.EVT_UPDATE_UI, self.onViewportUpdate, id=1001)
+		viewMenu.Append(1002, "Fit Player View to Map\tCTRL+0",
+						"Zoom the player view out until the whole map fits.")
+		self.Bind(wx.EVT_MENU, self.onFitPlayerView, id=1002)
+		self.Bind(wx.EVT_UPDATE_UI, self.onViewportUpdate, id=1002)
+		self.menuBar.Append(viewMenu, "View")
+
 		self.SetMenuBar(self.menuBar)
 
 	def __createBrushToolbar(self):
@@ -127,6 +141,16 @@ class GMFrame(MapPanelFrame):
 		self.brushSize = wx.Slider(tb, -1, 1, 1, 100, size=(100, -1), style=wx.SL_HORIZONTAL)
 		self.Bind(wx.EVT_SLIDER, self.onBrushSizeChanged, self.brushSize)
 		tb.AddControl(self.brushSize)
+
+		tb.AddSeparator()
+
+		# A plain control rather than a check tool, so it needs no bitmap and
+		# matches how the brush controls above are added.
+		self.viewportToggle = wx.ToggleButton(tb, -1, "Player Viewport")
+		self.viewportToggle.SetToolTip("Show the players' visible area and drag it "
+									   "around.  Suspends the brush.")
+		self.Bind(wx.EVT_TOGGLEBUTTON, self.onViewportButton, self.viewportToggle)
+		tb.AddControl(self.viewportToggle)
 
 		return tb
 
@@ -238,6 +262,34 @@ class GMFrame(MapPanelFrame):
 		
 	def onGridSettingsUpdate(self, evt):
 		evt.Enable(self.hasGrid())
+
+	def hasPlayerView(self):
+		return (self.panel != None) and (self.panel.playerPanel != None)
+
+	def onViewportChanged(self):
+		"""Keep the toolbar in step however the overlay got toggled - button,
+		   menu, or a setting read back from a map file."""
+		active = (self.panel != None) and self.panel.showViewport
+		self.viewportToggle.SetValue(active)
+		# The overlay takes over the mouse, so the brush is unavailable.
+		self.brushType.Enable(not active)
+		self.brushSize.Enable(not active)
+
+	def onViewportButton(self, evt):
+		self.panel.setShowViewport(self.viewportToggle.GetValue())
+
+	def onViewportToggle(self, evt):
+		self.panel.setShowViewport(evt.IsChecked())
+
+	def onViewportUpdate(self, evt):
+		evt.Enable(self.hasPlayerView())
+		if (evt.GetId() == 1001):
+			evt.Check(self.hasPlayerView() and self.panel.showViewport)
+
+	def onFitPlayerView(self, evt):
+		if (self.hasPlayerView() and (self.panel.map != None)):
+			w, h = self.panel.map.size
+			self.panel.playerPanel.showMapRect((0, 0, w, h))
 
 	def onBrushTypeChanged(self, evt):
 		brush = None

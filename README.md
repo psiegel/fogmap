@@ -38,7 +38,12 @@ python app.py -f test.map    # open an existing .map file
 | Alt + drag (either button) | Pan the Player View |
 | Alt + wheel | Zoom the Player View about the map point under the cursor |
 | Alt + right double-click | Recentre the Player View |
+| `Ctrl+B` | Show or hide the player viewport (suspends the brush) |
+| Drag, viewport shown | Move the players' visible area |
+| Drag an edge / corner, viewport shown | Resize the players' visible area |
+| `Ctrl+0` | Zoom the Player View out to the whole map |
 | Toolbar | Brush type (None / Round / Square / Grid) and size |
+| **Player Viewport** button | Toggle player viewport mode (same as `Ctrl+B`) |
 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+A` | New / Open / Save / Save As |
 | `Ctrl+W` | Swap the underlying image, keeping the revealed mask |
 | Grid menu | Toggle the grid and change its type (None / Square / Hex) and size |
@@ -65,9 +70,39 @@ scrolling over the GM map pans and zooms what the players are looking at. Becaus
 GM map is drawn 1:1, Alt + wheel zooms the Player View around whichever map feature
 the GM is pointing at.
 
+## The player viewport outline
+
+The **Player Viewport** button on the toolbar, **View > Show Player Viewport**, and
+`Ctrl+B` all do the same thing and stay in step with each other. It is off by
+default. When on, the GM map is overlaid with a cyan
+rectangle marking exactly what the players can currently see, with a handle on
+each corner and edge.
+
+The rectangle is never stored anywhere. It is derived from the Player View's own
+zoom and pan every time it is drawn, so it cannot fall out of sync with what the
+players are looking at, and it updates live as the view moves.
+
+While it is on, the overlay owns the mouse and **the brush is suspended** - the
+brush controls grey out, and no click will paint or un-paint the fog. Instead:
+
+- **Drag anywhere** to move the players' visible area. The rectangle follows the
+  cursor one-for-one and the zoom is untouched. The cursor is a hand to show this.
+- **Drag an edge or corner** to resize it. The cursor becomes a resize arrow.
+
+Either drag runs the derivation backwards: the new rectangle is fitted to the
+Player View, which is the same as zooming and panning to frame it. A resize always
+holds the opposite edge or corner still, and the result is locked to the aspect
+ratio of the player window, so the players never see bars or a stretched map. A
+corner follows whichever axis you dragged further. Resizing is bounded by the same
+zoom limits as the mouse wheel, so a handle cannot be dragged past them.
+
+Switch the overlay off to get the brush back. The setting starts off and is saved
+with the map.
+
 ## File format
 
 A `.map` file is XML holding a *path* to the map image plus the two reveal masks
-(base64 PNG-less raw bytes). The image itself is not embedded, so moving a map
-between machines means keeping the image at the same path, or using
-**Swap Image** to re-point it.
+(base64 PNG-less raw bytes), plus the Player View's zoom and pan and the GM's
+overlay setting. The image itself is not embedded, so moving a map between
+machines means keeping the image at the same path, or using **Swap Image** to
+re-point it.

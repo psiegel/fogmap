@@ -5,6 +5,7 @@ import gfx
 import data
 
 from . import grid
+from . import viewport
 
 class MapPanel(wx.Panel):	
 	def __init__(self, parent):
@@ -16,6 +17,7 @@ class MapPanel(wx.Panel):
 		self.grid = None
 		self.mapImg = None
 		self.playerPanel = None
+		self.viewListener = None
 		self._buffer = wx.Bitmap.FromRGBA(1, 1)
 		
 		self.Bind(wx.EVT_SIZE, self.onSize)
@@ -33,12 +35,21 @@ class MapPanel(wx.Panel):
 		self.Bind(wx.EVT_KEY_DOWN, self.playerPanel.onKeyDown)
 		self.Bind(wx.EVT_KEY_UP, self.playerPanel.onKeyUp)
 
+	def setViewListener(self, listener):
+		"""Called whenever this panel's scale, offset or size changes."""
+		self.viewListener = listener
+
+	def _fireViewChanged(self):
+		if (self.viewListener != None):
+			self.viewListener()
+
 	def reset(self):
 		self.mapImg = None
 
 	def onSize(self, evt):
 		w, h = self.GetClientSize()
 		self._buffer = wx.Bitmap.FromRGBA(max(w, 1), max(h, 1))
+		self._fireViewChanged()
 		self.Refresh()
 		
 	def onPaint(self, evt):
@@ -113,6 +124,7 @@ class PlayerMapPanel(MapPanel):
 
 	def setScale(self, scale, refresh=True):
 		self.scale = min(max(scale, PlayerMapPanel.MIN_SCALE), PlayerMapPanel.MAX_SCALE)
+		self._fireViewChanged()
 		if (refresh):
 			self.Refresh()
 
@@ -121,6 +133,7 @@ class PlayerMapPanel(MapPanel):
 
 	def setOffset(self, x, y, refresh=True):
 		self.offset = (x, y)
+		self._fireViewChanged()
 		if (refresh):
 			self.Refresh()
 
@@ -130,6 +143,40 @@ class PlayerMapPanel(MapPanel):
 	def toggleMirror(self):
 		self.mirror = not self.mirror
 		self.Refresh()
+
+	def getViewportAspect(self):
+		"""Width / height of the player window, which the GM overlay locks to."""
+		cw, ch = self.GetClientSize()
+		if (ch <= 0):
+			return None
+		return cw / float(ch)
+
+	def getViewportRect(self):
+		"""The map-space rectangle currently on screen, as (x, y, w, h).
+
+		   Mirroring flips left and right within the same rectangle, so it does
+		   not affect the result."""
+		cw, ch = self.GetClientSize()
+		if ((self.mapImg is None) or (self.scale <= 0) or (cw <= 0) or (ch <= 0)):
+			return None
+		w = cw / self.scale
+		h = ch / self.scale
+		bsz = self.mapImg.GetSize()
+		centreX = bsz.width / 2.0 - self.offset[0]
+		centreY = bsz.height / 2.0 - self.offset[1]
+		return (centreX - w / 2.0, centreY - h / 2.0, w, h)
+
+	def showMapRect(self, rect):
+		"""Zoom and pan so that the given map rectangle fills the window."""
+		x, y, w, h = rect
+		cw, ch = self.GetClientSize()
+		if ((self.mapImg is None) or (w <= 0) or (h <= 0) or (cw <= 0) or (ch <= 0)):
+			return
+		bsz = self.mapImg.GetSize()
+		self.offset = (bsz.width / 2.0 - (x + w / 2.0),
+					   bsz.height / 2.0 - (y + h / 2.0))
+		# min() keeps the whole rect visible if its aspect does not match.
+		self.setScale(min(cw / float(w), ch / float(h)))
 
 	def _scaleXY(self, scale=None):
 		"""Horizontal scale is negated while mirrored, so screen deltas still map
@@ -329,6 +376,13 @@ class GMMapPanel(MapPanel):
 		self.axisLock = (False, False)
 		self.forwarding = False
 		self.forwardAnchor = None
+		self.showViewport = False
+		self.viewportHandle = None
+		self.viewportBase = None
+		self.viewportGrabPt = None
+		self.viewportHover = None
+		self.viewportListener = None
+		self.cursorKey = None
 		
 		super(GMMapPanel, self).__init__(parent)
 
@@ -339,9 +393,109 @@ class GMMapPanel(MapPanel):
 		self.Bind(wx.EVT_RIGHT_DCLICK, self.onRightDClick)
 		self.Bind(wx.EVT_MOUSEWHEEL, self.onWheel)
 		self.Bind(wx.EVT_MOTION, self.onMouseMove)
+		self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.onCaptureLost)
 		
 	def setBrush(self, brush):
 		self.brush = brush
+
+	def setPlayerPanel(self, panel):
+		super(GMMapPanel, self).setPlayerPanel(panel)
+		panel.setViewListener(self._onPlayerViewChanged)
+
+	def _onPlayerViewChanged(self):
+		if (self.showViewport):
+			self.Refresh(False)
+
+	def setViewportListener(self, listener):
+		"""Called when the overlay is switched on or off, so the frame can grey
+		   out the brush controls that the overlay disables."""
+		self.viewportListener = listener
+
+	def setShowViewport(self, show):
+		self.showViewport = show
+		self._endViewportDrag()
+		self.viewportHover = None
+		if (not show):
+			self._setCursorFor(None)
+		if (self.viewportListener != None):
+			self.viewportListener()
+		self.Refresh()
+
+	def viewportActive(self):
+		"""While the overlay is up the mouse drives it, and the brush is off."""
+		return self.showViewport and (self.playerPanel is not None)
+
+	VIEWPORT_TOLERANCE = 6
+	VIEWPORT_HANDLE_SIZE = 9
+	VIEWPORT_MOVE = "move"
+
+	def _viewportRect(self):
+		"""The player viewport in map pixels, or None if there is nothing to show."""
+		if ((not self.showViewport) or (self.playerPanel is None)):
+			return None
+		return self.playerPanel.getViewportRect()
+
+	def _viewportHitTest(self, pos):
+		rect = self._viewportRect()
+		if (rect is None):
+			return None
+		return viewport.hitTest(rect, pos, GMMapPanel.VIEWPORT_TOLERANCE)
+
+	def _setCursorFor(self, key):
+		if (key == self.cursorKey):
+			return
+		self.cursorKey = key
+		if (key is None):
+			self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
+		else:
+			# Anything that is not a resize handle is a grab.
+			self.SetCursor(wx.Cursor(viewport.CURSORS.get(key, wx.CURSOR_HAND)))
+
+	def _grabViewport(self, pos):
+		"""Take hold of the overlay: an edge or corner resizes, anywhere else moves."""
+		if (not self.viewportActive()):
+			return False
+		rect = self._viewportRect()
+		if (rect is None):
+			return False
+		handle = viewport.hitTest(rect, pos, GMMapPanel.VIEWPORT_TOLERANCE)
+		self.viewportHandle = handle or GMMapPanel.VIEWPORT_MOVE
+		self.viewportBase = rect
+		self.viewportGrabPt = pos
+		if (not self.HasCapture()):
+			self.CaptureMouse()
+		return True
+
+	def _endViewportDrag(self):
+		self.viewportHandle = None
+		self.viewportBase = None
+		self.viewportGrabPt = None
+		if (self.HasCapture()):
+			self.ReleaseMouse()
+
+	def _dragViewport(self, pos):
+		if ((self.viewportBase is None) or (self.playerPanel is None)):
+			return
+		if (self.viewportHandle == GMMapPanel.VIEWPORT_MOVE):
+			# The rectangle follows the cursor one-for-one; the GM panel is 1:1.
+			rect = (self.viewportBase[0] + pos[0] - self.viewportGrabPt[0],
+					self.viewportBase[1] + pos[1] - self.viewportGrabPt[1],
+					self.viewportBase[2], self.viewportBase[3])
+		else:
+			aspect = self.playerPanel.getViewportAspect()
+			if (aspect is None):
+				return
+			# Scale limits become width limits, so a drag cannot outrun the zoom range.
+			cw = self.playerPanel.GetClientSize()[0]
+			rect = viewport.resize(self.viewportBase, self.viewportHandle, pos, aspect,
+								   cw / float(PlayerMapPanel.MAX_SCALE),
+								   cw / float(PlayerMapPanel.MIN_SCALE))
+		self.playerPanel.showMapRect(rect)
+
+	def onCaptureLost(self, evt):
+		self.viewportHandle = None
+		self.viewportBase = None
+		self.viewportGrabPt = None
 
 	def _forwardsToPlayer(self, evt):
 		"""While Alt is held the mouse drives the player view instead of the brush."""
@@ -351,10 +505,12 @@ class GMMapPanel(MapPanel):
 		if (forwarding == self.forwarding):
 			return
 		self.forwarding = forwarding
-		self.SetCursor(wx.Cursor(wx.CURSOR_HAND if forwarding else wx.CURSOR_ARROW))
+		self._setCursorFor("hand" if forwarding else None)
 		self.Refresh()
 
 	def onLeftDown(self, evt):
+		if (self._grabViewport(evt.GetPosition())):
+			return
 		if (self._forwardsToPlayer(evt)):
 			self.forwardAnchor = evt.GetPosition()
 			return
@@ -363,6 +519,8 @@ class GMMapPanel(MapPanel):
 			self.map.applyBrush(self.brush, pos[0], pos[1])
 			
 	def onRightDown(self, evt):
+		if (self._grabViewport(evt.GetPosition())):
+			return
 		if (self._forwardsToPlayer(evt)):
 			self.forwardAnchor = evt.GetPosition()
 			return
@@ -372,6 +530,8 @@ class GMMapPanel(MapPanel):
 
 	def onMouseUp(self, evt):
 		self.forwardAnchor = None
+		if (self.viewportHandle is not None):
+			self._endViewportDrag()
 		evt.Skip()
 
 	def onRightDClick(self, evt):
@@ -402,12 +562,30 @@ class GMMapPanel(MapPanel):
 			self.forwardAnchor = None
 
 	def onMouseMove(self, evt):
+		if (self.viewportHandle is not None):
+			if (evt.LeftIsDown() or evt.RightIsDown()):
+				self._dragViewport(evt.GetPosition())
+			else:
+				self._endViewportDrag()
+			return
+
+		if (self.viewportActive()):
+			# The overlay owns the mouse: edges and corners resize, the rest grabs.
+			self._setForwarding(False)
+			self.forwardAnchor = None
+			self.viewportHover = self._viewportHitTest(evt.GetPosition())
+			self._setCursorFor(self.viewportHover or GMMapPanel.VIEWPORT_MOVE)
+			return
+
 		if (self._forwardsToPlayer(evt)):
 			self._setForwarding(True)
 			self._forwardDrag(evt)
 			return
 		self._setForwarding(False)
 		self.forwardAnchor = None
+		self.viewportHover = None
+		self._setCursorFor(None)
+
 		self.axisLock = (evt.ShiftDown(), evt.ControlDown())
 		mousePos = evt.GetPosition()
 		if (not self.axisLock[0] and not self.axisLock[1]):
@@ -432,7 +610,13 @@ class GMMapPanel(MapPanel):
 			
 	def _draw(self, gc):
 		super(GMMapPanel, self)._draw(gc)
+		self._drawViewport(gc)
 		self._drawBrush(gc)
+
+	def _drawViewport(self, gc):
+		rect = self._viewportRect()
+		if (rect is not None):
+			viewport.draw(gc, rect, GMMapPanel.VIEWPORT_HANDLE_SIZE)
 
 	def _drawMap(self, gc):
 		w, h = self.GetSize()
@@ -463,7 +647,7 @@ class GMMapPanel(MapPanel):
 			
 	def _drawBrush(self, gc):
 		# Cursor
-		if ((self.brush != None) and (not self.forwarding)):
+		if ((self.brush != None) and (not self.forwarding) and (not self.showViewport)):
 			color = wx.Colour(0, 255, 0, 128)
 			gc.SetBrush(wx.Brush(color))
 			self.brush.drawToGc(gc, self.mouse[0], self.mouse[1])
@@ -485,7 +669,10 @@ class GMMapPanel(MapPanel):
 		self.brush = None
 		
 	def readSettings(self, settings):
-		pass
+		for child in settings:
+			if (child.tag == "viewport"):
+				self.setShowViewport(child.get("visible") == "true")
 	
 	def writeSettings(self, settings):
-		pass
+		settings.append(etree.Element("viewport",
+									  visible=str(self.showViewport).lower()))
