@@ -153,9 +153,22 @@ with the map.
 
 ## File format
 
-A `.map` file is XML holding a *path* to the map image plus the two reveal masks
-(base64 PNG-less raw bytes), plus the Player View's zoom and pan and the GM's
-overlay setting. The image itself is not embedded.
+A `.map` file is XML holding a *path* to the map image plus the reveal mask,
+plus the Player View's zoom and pan and the GM's overlay setting. The image
+itself is not embedded.
+
+The mask is one bit per pixel — set where the map shows through — packed,
+deflated and base64'd. The two alphas the app actually draws with (transparent
+or opaque for the players, dimmed or opaque for the GM) are both derived from
+that single bit on the way to the screen, so they cannot drift apart.
+
+Older map files hold the mask twice over, a byte per pixel each and
+uncompressed, which is most of the weight of such a file — a 800×600 map came
+to 1.3 MB where it now comes to well under a kilobyte. Those files are still
+read, and **opening a project marks every one of them as unsaved**, so a single
+**Save All** converts the whole folder. Maps that have not been opened are
+converted straight on disk without their images ever being loaded, so a map
+whose image has gone missing converts too.
 
 The path is stored **relative to the `.map` file**, so a project folder can be
 copied or moved between machines as a unit and its maps still find their images.

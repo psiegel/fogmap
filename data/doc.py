@@ -1,9 +1,50 @@
 from PIL import Image
 import base64
 import os
+import zlib
 from lxml import etree
 
 import gfx
+
+# Mask payloads are runs of identical bytes almost end to end, so deflating
+# them before base64 turns what used to be the whole weight of a map file into
+# a rounding error.  The attribute is what tells a new file from an old one.
+MASK_ENCODING = "zlib"
+
+
+def readMaskNode(element):
+	"""A <maskData> element as a 1-bit mask.
+
+	   Also reads the old byte-per-pixel form, where the file held a separate
+	   alpha mask alongside this one.  The two were only ever two views of the
+	   same boolean - 0/255 here, 128/255 there - so this one carries all of
+	   it and the other is thrown away."""
+	w = int(element.get("width"))
+	h = int(element.get("height"))
+	raw = base64.b64decode(element.text)
+	if (element.get("encoding") == MASK_ENCODING):
+		raw = zlib.decompress(raw)
+	mask = Image.frombytes(element.get("mode"), (w, h), raw)
+	if (mask.mode != gfx.MASK_MODE):
+		# Threshold explicitly: convert() on its own would dither, which would
+		# leave every fog edge speckled.
+		mask = mask.point(lambda v: gfx.MASK_REVEALED if (v > 127) else gfx.MASK_HIDDEN,
+						  mode=gfx.MASK_MODE)
+	return mask
+
+
+def writeMaskNode(tag, mask):
+	node = etree.Element(tag, mode=mask.mode, encoding=MASK_ENCODING,
+						 width=str(mask.size[0]), height=str(mask.size[1]))
+	# tobytes() is where the bit packing happens; rows are padded out to a byte
+	# boundary, which frombytes() undoes given the same width.
+	node.text = base64.b64encode(zlib.compress(mask.tobytes(), 9)).decode("ascii")
+	return node
+
+
+def isLegacyMaskNode(element):
+	return ((element.get("mode") != gfx.MASK_MODE) or
+			(element.get("encoding") != MASK_ENCODING))
 
 class Grid(object):
 	GRID_NONE = "None"
@@ -56,11 +97,17 @@ class Grid(object):
 			
 
 class Map(object):
-	def __init__(self, mapImg, mapImgPath, mask, alphaMask, editable=True):
+	def __init__(self, mapImg, mapImgPath, mask, editable=True):
 		self.mapImg = mapImg
 		self.mapImgPath = mapImgPath
+		# One bit per pixel; the alpha the two windows draw with is derived
+		# from it.  See gfx.playerAlpha / gfx.gmAlpha.
 		self.mask = mask
-		self.alphaMask = alphaMask
+
+		# True when this came out of a file still holding the old two-mask
+		# format, which makes it unsaved from the moment it is opened so that
+		# writing it back converts it.
+		self.legacyFormat = False
 
 		# False for a plain image opened straight from the project tree: there
 		# is no fog to paint and nowhere to save it back to.
@@ -82,20 +129,19 @@ class Map(object):
 	@staticmethod
 	def createNew(imgPath):
 		mapImg = Image.open(imgPath).convert("RGBA")
-		mask = gfx.createMask(mapImg.size[0], mapImg.size[1], 0)
-		alphaMask = gfx.createMask(mapImg.size[0], mapImg.size[1], 128)
-		return Map(mapImg, imgPath, mask, alphaMask)
+		return Map(mapImg, imgPath, gfx.createMask(mapImg.size[0], mapImg.size[1], False))
 
 	@staticmethod
 	def forImage(imgPath):
 		"""A plain image, shown whole to the players with no fog at all.
 
-		   Both masks are fully opaque, so the players see everything and the
-		   GM sees it at full brightness rather than the usual half.  They are
-		   the same object because neither can ever be painted on."""
+		   The mask is entirely revealed, which the players see as the whole
+		   image and the GM sees at full brightness rather than the usual
+		   half - both fall out of the one mask, so there is nothing here to
+		   keep in step."""
 		mapImg = Image.open(imgPath).convert("RGBA")
-		mask = gfx.createMask(mapImg.size[0], mapImg.size[1], 255)
-		return Map(mapImg, imgPath, mask, mask, editable=False)
+		mask = gfx.createMask(mapImg.size[0], mapImg.size[1], True)
+		return Map(mapImg, imgPath, mask, editable=False)
 
 	@staticmethod
 	def resolveImagePath(imgPath, baseDir):
@@ -126,7 +172,7 @@ class Map(object):
 		mapImg = None
 		imgPath = None
 		mask = None
-		alphaMask = None
+		legacy = False
 		grid = Grid()
 		for element in root:
 			if (element.tag == "imagePath"):
@@ -135,19 +181,17 @@ class Map(object):
 			elif (element.tag == "grid"):
 				grid.fromXml(element)
 			elif (element.tag == "maskData"):
-				mode = element.get("mode")
-				w = int(element.get("width"))
-				h = int(element.get("height"))
-				mask = Image.frombytes(mode, (w, h), base64.b64decode(element.text))
+				mask = readMaskNode(element)
+				legacy = legacy or isLegacyMaskNode(element)
 			elif (element.tag == "alphaMaskData"):
-				mode = element.get("mode")
-				w = int(element.get("width"))
-				h = int(element.get("height"))
-				alphaMask = Image.frombytes(mode, (w, h), base64.b64decode(element.text))
+				# Derived from <maskData> and no longer kept; its presence is
+				# itself enough to date the file.
+				legacy = True
 
 		# Held resolved, so the image can be found again whatever the working
 		# directory is; write() turns it back into a relative path.
-		map = Map(mapImg, Map.resolveImagePath(imgPath, baseDir), mask, alphaMask)
+		map = Map(mapImg, Map.resolveImagePath(imgPath, baseDir), mask)
+		map.legacyFormat = legacy
 		map.setGrid(grid)
 		return map
 
@@ -166,24 +210,16 @@ class Map(object):
 		gridNode = self.grid.toXml()
 		root.append(gridNode)
 
-		maskData = etree.Element("maskData", mode=self.mask.mode, width=str(self.mask.size[0]), height=str(self.mask.size[1]))
-		maskData.text = base64.b64encode(self.mask.tobytes()).decode("ascii")
-		root.append(maskData)
+		root.append(writeMaskNode("maskData", self.mask))
 
-		alphaData = etree.Element("alphaMaskData", mode=self.alphaMask.mode, width=str(self.alphaMask.size[0]), height=str(self.alphaMask.size[1]))
-		alphaData.text = base64.b64encode(self.alphaMask.tobytes()).decode("ascii")
-		root.append(alphaData)
-		
 		return root
 
 	def applyBrush(self, brush, x, y):
-		brush.drawToImage(self.mask, x, y, 255)
-		brush.drawToImage(self.alphaMask, x, y, 255)
+		brush.drawToImage(self.mask, x, y, gfx.MASK_REVEALED)
 		self.__contentChanged()
 
 	def unapplyBrush(self, brush, x, y):
-		brush.drawToImage(self.mask, x, y, 0)
-		brush.drawToImage(self.alphaMask, x, y, 128)
+		brush.drawToImage(self.mask, x, y, gfx.MASK_HIDDEN)
 		self.__contentChanged()
 
 	def __contentChanged(self):

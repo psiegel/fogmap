@@ -14,7 +14,7 @@ import shutil
 
 from lxml import etree
 
-from .doc import Map
+from .doc import Map, readMaskNode, writeMaskNode, isLegacyMaskNode
 
 TEMP_DIR_NAME = ".fogmap"
 
@@ -47,6 +47,58 @@ def readImagePath(path):
 	except (etree.XMLSyntaxError, OSError):
 		return None
 	return None
+
+
+def isLegacyMapFile(path):
+	"""True if a map file still holds fog in the old byte-per-pixel format.
+
+	   Asked of every map in a project the moment it is opened, so it reads
+	   only the head of the file: <maskData> carries the format in its
+	   attributes, and taking the start event rather than the end one means
+	   its base64 payload is never pulled in.  An <alphaMaskData> at all dates
+	   the file on its own."""
+	try:
+		for event, element in etree.iterparse(path,
+											  tag=("maskData", "alphaMaskData"),
+											  events=("start",)):
+			if (element.tag == "alphaMaskData"):
+				return True
+			return isLegacyMaskNode(element)
+	except (etree.XMLSyntaxError, OSError):
+		# Not something we can read, so not something we can convert either.
+		return False
+	return False
+
+
+def upgradeMapFile(path):
+	"""Rewrite a map file's fog in the current format, in place.
+
+	   Deliberately works on the XML rather than going through Map: converting
+	   the fog has nothing to do with the image, and a project-wide Save All
+	   should not have to decode every map image - nor fail on a map whose
+	   image has since been moved."""
+	root = etree.parse(path).getroot()
+	if (root.tag == "map"):
+		# Legacy bare root; give it the wrapper everything else expects.
+		mapNode = root
+		root = etree.Element("fogmap")
+		root.append(mapNode)
+	else:
+		mapNode = root.find("map")
+	if (mapNode is None):
+		return False
+
+	masks = mapNode.findall("maskData")
+	if (not masks):
+		return False
+	for node in mapNode.findall("alphaMaskData"):
+		mapNode.remove(node)
+	for node in masks:
+		mapNode.replace(node, writeMaskNode("maskData", readMaskNode(node)))
+
+	with open(path, mode="wb") as f:
+		f.write(etree.tostring(root, pretty_print=True))
+	return True
 
 
 def readMapFile(path, baseDir=None):
@@ -133,13 +185,16 @@ class DirtyEntry(object):
 	"""What is outstanding for one file.
 
 	   hasTemp means the fog, grid or image changed and a full copy is sitting
-	   in .fogmap/.  Without it only the player view moved, and the settings
-	   held here are the whole of the change."""
+	   in .fogmap/.  legacy means nothing was edited at all - the file is
+	   simply still in the old mask format and wants rewriting in place.
+	   Without either, only the player view moved and the settings held here
+	   are the whole of the change."""
 
-	def __init__(self, rel, hasTemp, settings):
+	def __init__(self, rel, hasTemp, settings, legacy=False):
 		self.rel = rel
 		self.hasTemp = hasTemp
 		self.settings = settings
+		self.legacy = legacy
 
 
 class Project(object):
@@ -199,11 +254,39 @@ class Project(object):
 	def markViewDirty(self, path, settings):
 		"""Nothing but the player view moved, so no mask data needs writing."""
 		entry = self.__entry(path)
-		if ((entry is not None) and entry.hasTemp):
-			# A full copy already covers this; keep it, but with the new view.
+		if ((entry is not None) and (entry.hasTemp or entry.legacy)):
+			# Something already covers the mask data; keep it, but with the
+			# new view.  Splicing settings alone would leave the old format in
+			# place, which is the one thing a legacy entry exists to fix.
 			entry.settings = copy.deepcopy(settings)
 			return
 		self.__setEntry(path, False, settings)
+
+	def markLegacyMaps(self):
+		"""Flag every map still in the old format as outstanding, so the next
+		   Save All converts the whole project in one go.
+
+		   Nothing is read beyond each file's head, and nothing is written
+		   until the GM asks for it - but the maps do show up starred in the
+		   tree, and they do count towards the unsaved-changes prompt.
+		   Returns how many were found."""
+		found = 0
+		for folder, dirs, files in os.walk(self.root):
+			# Skips .fogmap/ along with anything else hidden, matching scan().
+			dirs[:] = [d for d in dirs if not d.startswith(".")]
+			for name in files:
+				if (name.startswith(".") or not isMapPath(name)):
+					continue
+				full = os.path.join(folder, name)
+				if (self.isDirty(full)):
+					# Already outstanding for a better reason, and whatever
+					# gets written back will be in the current format anyway.
+					continue
+				if (isLegacyMapFile(full)):
+					self.dirty[self.__key(full)] = DirtyEntry(self.relPath(full),
+															  False, None, legacy=True)
+					found += 1
+		return found
 
 	def takeOver(self, path):
 		"""Hand a file's outstanding change to the document that has just opened
@@ -234,7 +317,13 @@ class Project(object):
 			if (os.path.exists(temp)):
 				shutil.copyfile(temp, original)
 				self.__removeTemp(entry.rel)
-		elif (os.path.exists(original)):
+		elif (not os.path.exists(original)):
+			return
+		elif (entry.legacy):
+			upgradeMapFile(original)
+			if (entry.settings is not None):
+				spliceSettings(original, entry.settings)
+		else:
 			spliceSettings(original, entry.settings)
 
 	# --- crash leftovers ------------------------------------------------------
@@ -389,7 +478,9 @@ class Document(object):
 				source = project.tempPathFor(path)
 			map, settings = readMapFile(source, os.path.dirname(os.path.abspath(path)))
 			doc = Document(path, map, project, settings)
-			doc.map.contentDirty = fromTemp
+			# An old-format file counts as unsaved from the outset: saving it
+			# is what converts it, whether or not the GM paints on it.
+			doc.map.contentDirty = fromTemp or map.legacyFormat
 
 		if (project is not None):
 			remembered = project.rememberedSettings(path)

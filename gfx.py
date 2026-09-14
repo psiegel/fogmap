@@ -1,5 +1,22 @@
 from PIL import Image, ImageDraw
+import numpy as np
 import wx
+
+# The fog mask is one bit per pixel: set where the map shows through, clear
+# where it is hidden.  What the two windows actually need is a byte of alpha
+# per pixel, but those are both functions of that single bit and are derived
+# on the way to the screen rather than stored.
+#
+# PIL holds a "1" image at a byte per pixel and only packs it down in
+# tobytes(), so the mode buys nothing in memory over "L" - the saving is in
+# carrying one mask instead of two, and in what goes to disk.
+MASK_MODE = "1"
+
+# PIL will store whatever value it is handed in a "1" image, so a mask painted
+# with 1 rather than 255 comes back out as alpha 1: invisible instead of
+# opaque.  Everything that paints a mask goes through these.
+MASK_REVEALED = 255
+MASK_HIDDEN = 0
 
 def pilToWx(pil, alpha=True):
 	image = wx.Image(pil.size[0], pil.size[1])
@@ -26,12 +43,20 @@ def createNewImg(w, h, color, alpha=False):
 		del draw
 	return im
 
-def createMask(w, h, color, alpha=True):
-	if (alpha):
-		im = Image.new("L", (w, h))
-	else:
-		im = Image.new("1", (w, h))
-	draw = ImageDraw.Draw(im)
-	draw.rectangle([(0, 0), (w, h)], fill=color)
-	del draw
-	return im
+def createMask(w, h, revealed):
+	return Image.new(MASK_MODE, (w, h), MASK_REVEALED if revealed else MASK_HIDDEN)
+
+def maskBytes(mask):
+	"""The mask as one byte per pixel, 0 or 255, without copying it out of PIL
+	   first.  A "1" image is stored unpacked, so this is a plain view."""
+	return np.asarray(mask).view(np.uint8)
+
+def playerAlpha(mask):
+	"""Player alpha: hidden ground is fully transparent, so the black behind
+	   the map comes through."""
+	return maskBytes(mask).tobytes()
+
+def gmAlpha(mask):
+	"""GM alpha: hidden ground is dimmed rather than removed, so the GM can
+	   still see what they are about to reveal.  255 -> 255, 0 -> 128."""
+	return ((maskBytes(mask) >> 1) | np.uint8(128)).tobytes()

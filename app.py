@@ -58,9 +58,18 @@ class ImageTestApp(wx.App):
 			else:
 				project.discardTemps()
 
+		# Maps still holding the old two-mask fog are marked unsaved here, so
+		# one Save All converts the whole folder.  Reads only each file's head.
+		project.markLegacyMaps()
+
 		self.project = project
 		if (self.doc is not None):
 			self.doc.project = project
+			if (self.doc.map.legacyFormat and (self.doc.path is not None)):
+				# Already open, so saving the document is what converts it.
+				# Leaving the project's own entry would count it twice in the
+				# unsaved-changes prompt and write it twice on Save All.
+				project.takeOver(self.doc.path)
 		self.gmFrame.setProject(project)
 		return True
 

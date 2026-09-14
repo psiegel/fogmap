@@ -377,7 +377,7 @@ class PlayerMapPanel(MapPanel):
 	def _updateMap(self):
 		super(PlayerMapPanel, self)._updateMap()
 		if (self.mapImg != None):
-			self.mapImg.SetAlpha(self.map.mask.tobytes())
+			self.mapImg.SetAlpha(gfx.playerAlpha(self.map.mask))
 			self.Refresh(False)
 			
 	def readSettings(self, settings):
@@ -694,7 +694,7 @@ class GMMapPanel(MapPanel):
 		super(GMMapPanel, self)._updateMap()
 		if (self.mapImg != None):
 			self.SetMinSize(self.mapImg.GetSize())
-			self.mapImg.SetAlpha(self.map.alphaMask.tobytes())
+			self.mapImg.SetAlpha(gfx.gmAlpha(self.map.mask))
 			self.Refresh()
 				
 	def _updateGrid(self):
