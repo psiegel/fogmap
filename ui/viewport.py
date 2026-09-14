@@ -5,8 +5,10 @@ offset every time it is drawn, so it cannot drift out of sync with what the
 players are actually looking at.  Dragging a handle runs the derivation
 backwards and pushes a new scale and offset onto the player panel.
 
-Coordinates here are map pixels.  The GM panel draws the map 1:1 at its origin,
-so its client coordinates are map pixels too and no conversion is needed.
+Coordinates here are map pixels.  The GM panel undoes its own zoom before it
+asks anything of this module, and scales the rectangle back up itself when it
+comes to draw it, so that the outline and its handles stay the same size on
+screen however far the map is zoomed out.
 """
 import wx
 

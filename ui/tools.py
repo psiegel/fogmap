@@ -32,7 +32,7 @@ class GridDialog(wx.Dialog):
 		label = wx.StaticText(self, -1, "Grid Size:")
 		sizer.Add(label, 0, wx.ALIGN_CENTER_HORIZONTAL|wx.ALL, 5)
 		
-		self.slider = wx.Slider(self, -1, self.grid.size, 10, 128, style=wx.SL_HORIZONTAL | wx.SL_AUTOTICKS | wx.SL_LABELS)	
+		self.slider = wx.Slider(self, -1, self.grid.size, 10, 256, style=wx.SL_HORIZONTAL | wx.SL_AUTOTICKS | wx.SL_LABELS)
 		self.slider.SetTickFreq(5)
 		self.Bind(wx.EVT_SLIDER, self.onSizeChanged, self.slider)
 		sizer.Add(self.slider, 0, wx.GROW|wx.ALL, 5)

@@ -5,7 +5,7 @@ A fog-of-war map tool for tabletop games. It opens two windows:
 - **Player View** — the map as the players see it, with unrevealed areas blacked out.
   Intended for a second monitor or projector.
 - **GM View** — the full map at half brightness, where the GM paints areas to reveal
-  or re-hide with the mouse.
+  or re-hide with the mouse, at whatever zoom suits the map.
 
 ## Setup
 
@@ -92,7 +92,10 @@ copies left in there are offered back the next time that project is opened.
 | Drag, viewport shown | Move the players' visible area |
 | Drag an edge / corner, viewport shown | Resize the players' visible area |
 | `Ctrl+0` | Zoom the Player View out to the whole map |
-| Toolbar | Brush type (None / Round / Square / Grid) and size |
+| `Ctrl+=` / `Ctrl+-` | Zoom the GM map in or out one level |
+| `Ctrl+1` / `Ctrl+9` | GM map at 100% / zoomed out until all of it fits |
+| `Ctrl` + wheel | Zoom the GM map about the point under the cursor |
+| Toolbar | Brush type (None / Round / Square / Grid) and size, and the GM zoom |
 | **Player Viewport** button | Toggle player viewport mode (same as `Ctrl+B`) |
 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+A` | New / Open / Save / Save As |
 | `Ctrl+Shift+O` / `Ctrl+Shift+S` | Open Project / Save All |
@@ -118,9 +121,30 @@ whole hexes. It is only selectable while a grid is active.
 The GM window forwards key presses to the Player View, so the GM can zoom and pan
 what the players see without leaving their own window. Holding **Alt** forwards the
 mouse as well: the brush is suspended, the cursor turns into a hand, and dragging or
-scrolling over the GM map pans and zooms what the players are looking at. Because the
-GM map is drawn 1:1, Alt + wheel zooms the Player View around whichever map feature
-the GM is pointing at.
+scrolling over the GM map pans and zooms what the players are looking at. Alt + wheel
+zooms the Player View around whichever map feature the GM is pointing at, whatever
+zoom the GM's own map happens to be at.
+
+## Zooming the GM map
+
+The **Zoom** box on the toolbar, the View menu and `Ctrl` + the wheel all set how
+big the GM's own map is drawn, from 10% to 400%. It is entirely separate from the
+Player View: changing it does not move, resize or otherwise touch what the players
+are looking at. Zoom out to find your way around a map far larger than the window,
+zoom in to paint a doorway one square at a time.
+
+The zoom is a ladder of fixed levels rather than a free scale, so the toolbar box
+always names exactly where the view is however it was last changed. **Fit Map to
+Window** (`Ctrl+9`) picks the largest level that shows all of the map at once.
+
+Zooming holds still whatever you were already looking at: the wheel keeps the point
+under the cursor where it is, and the menu and the toolbar hold the centre of the
+window. Everything else carries on working in map pixels, so the brush paints where
+its cursor is at any zoom, and the player viewport outline stays a thin rectangle
+with grabbable handles however far the map is zoomed out.
+
+The level is saved with the map, so a map comes back at the zoom you left it at -
+which, like moving the Player View, counts as a change worth saving.
 
 ## The player viewport outline
 
@@ -154,8 +178,8 @@ with the map.
 ## File format
 
 A `.map` file is XML holding a *path* to the map image plus the reveal mask,
-plus the Player View's zoom and pan and the GM's overlay setting. The image
-itself is not embedded.
+plus the Player View's zoom and pan and the GM's own zoom and overlay setting.
+The image itself is not embedded.
 
 The mask is one bit per pixel — set where the map shows through — packed,
 deflated and base64'd. The two alphas the app actually draws with (transparent

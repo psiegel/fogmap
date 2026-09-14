@@ -76,6 +76,10 @@ class GMFrame(MapPanelFrame):
 		self.scrollPanel.SetSizer(scrollSizer)
 		self.scrollPanel.SetupScrolling()
 		self.panel.setViewportListener(self.updateControlState)
+		# The panel resizes itself as it zooms, and puts the scroll position
+		# back afterwards, so it needs to know what it is being scrolled by.
+		self.panel.setScroller(self.scrollPanel)
+		self.panel.setZoomListener(self.updateZoomControl)
 
 		self.splitter.Initialize(self.scrollPanel)
 		sizer.Add(self.splitter, 1, wx.EXPAND)
@@ -204,6 +208,20 @@ class GMFrame(MapPanelFrame):
 						"Zoom the player view out until the whole map fits.")
 		self.Bind(wx.EVT_MENU, self.onFitPlayerView, id=1002)
 		self.Bind(wx.EVT_UPDATE_UI, self.onViewportUpdate, id=1002)
+		viewMenu.AppendSeparator()
+		viewMenu.Append(1003, "Zoom &In\tCTRL+=", "Zoom the GM map in one level.")
+		self.Bind(wx.EVT_MENU, self.onZoomIn, id=1003)
+		self.Bind(wx.EVT_UPDATE_UI, self.onZoomUpdate, id=1003)
+		viewMenu.Append(1004, "Zoom &Out\tCTRL+-", "Zoom the GM map out one level.")
+		self.Bind(wx.EVT_MENU, self.onZoomOut, id=1004)
+		self.Bind(wx.EVT_UPDATE_UI, self.onZoomUpdate, id=1004)
+		viewMenu.Append(1005, "&Actual Size\tCTRL+1", "Show the GM map at 100%.")
+		self.Bind(wx.EVT_MENU, self.onZoomActual, id=1005)
+		self.Bind(wx.EVT_UPDATE_UI, self.onZoomUpdate, id=1005)
+		viewMenu.Append(1006, "&Fit Map to Window\tCTRL+9",
+						"Zoom the GM map out until the whole of it fits.")
+		self.Bind(wx.EVT_MENU, self.onZoomFit, id=1006)
+		self.Bind(wx.EVT_UPDATE_UI, self.onZoomUpdate, id=1006)
 		self.menuBar.Append(viewMenu, "View")
 
 		self.SetMenuBar(self.menuBar)
@@ -235,6 +253,19 @@ class GMFrame(MapPanelFrame):
 									   "around.  Suspends the brush.")
 		self.Bind(wx.EVT_TOGGLEBUTTON, self.onViewportButton, self.viewportToggle)
 		tb.AddControl(self.viewportToggle)
+
+		tb.AddSeparator()
+
+		tb.AddControl(wx.StaticText(tb, -1, "Zoom: "))
+
+		# Fixed levels rather than a free scale, so this box can always show
+		# exactly where the zoom is, however it was last changed.
+		self.zoomChoice = wx.Choice(tb, -1, choices=[GMFrame.zoomLabel(level)
+							for level in mappanel.GMMapPanel.ZOOM_LEVELS])
+		self.zoomChoice.SetToolTip("How big the GM's own map is drawn.  Does not "
+								   "affect what the players see.")
+		self.Bind(wx.EVT_CHOICE, self.onZoomChoice, self.zoomChoice)
+		tb.AddControl(self.zoomChoice)
 
 		return tb
 
@@ -406,6 +437,7 @@ class GMFrame(MapPanelFrame):
 		canPaint = (self.panel != None) and self.panel.canPaint() and (not active)
 		self.brushType.Enable(canPaint)
 		self.brushSize.Enable(canPaint)
+		self.updateZoomControl()
 
 	def onViewportButton(self, evt):
 		self.panel.setShowViewport(self.viewportToggle.GetValue())
@@ -422,6 +454,41 @@ class GMFrame(MapPanelFrame):
 		if (self.hasPlayerView() and (self.panel.map != None)):
 			w, h = self.panel.map.size
 			self.panel.playerPanel.showMapRect((0, 0, w, h))
+
+	# --- zoom -----------------------------------------------------------------
+
+	@staticmethod
+	def zoomLabel(scale):
+		return "%d%%" % round(scale * 100)
+
+	def updateZoomControl(self):
+		"""Keep the toolbar box showing whatever the zoom actually is, however
+		   it got there - the box, the menu, the wheel, or a level read back
+		   out of a map file."""
+		if (self.panel is None):
+			return
+		self.zoomChoice.Enable(self.panel.map != None)
+		self.zoomChoice.SetStringSelection(GMFrame.zoomLabel(self.panel.scale))
+
+	def onZoomChoice(self, evt):
+		index = self.zoomChoice.GetSelection()
+		if (index != wx.NOT_FOUND):
+			self.panel.zoomTo(mappanel.GMMapPanel.ZOOM_LEVELS[index])
+
+	def onZoomIn(self, evt):
+		self.panel.zoomStep(1)
+
+	def onZoomOut(self, evt):
+		self.panel.zoomStep(-1)
+
+	def onZoomActual(self, evt):
+		self.panel.zoomTo(mappanel.GMMapPanel.DEFAULT_ZOOM)
+
+	def onZoomFit(self, evt):
+		self.panel.zoomTo(self.panel.fitZoomLevel())
+
+	def onZoomUpdate(self, evt):
+		evt.Enable((self.panel != None) and (self.panel.map != None))
 
 	def onBrushTypeChanged(self, evt):
 		if (not self.panel.canPaint()):

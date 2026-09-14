@@ -1,3 +1,5 @@
+import math
+
 import wx
 import numpy as np
 from lxml import etree
@@ -518,8 +520,16 @@ class PlayerMapPanel(MapPanel):
 
 		
 class GMMapPanel(MapPanel):
+	# The zoom steps through a ladder of levels rather than a continuous scale,
+	# so the wheel, the menu and the toolbar box can never disagree about where
+	# on it the view is, and a level is always something with a name.
+	ZOOM_LEVELS = (0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
+	DEFAULT_ZOOM = 1.0
+
 	def __init__(self, parent):
 		self.brush = None
+		# Map pixels, not panel coordinates: the two are the same thing only at
+		# 100%, and everything a brush touches is counted in map pixels.
 		self.mouse = (0, 0)
 		self.lastBrushPt = None
 		# Where the brush cursor was last actually painted, which is not the
@@ -537,6 +547,12 @@ class GMMapPanel(MapPanel):
 		self.viewportHover = None
 		self.viewportListener = None
 		self.cursorKey = None
+		# The map used to be drawn 1:1 and merely scrolled.  It is now drawn
+		# through this scale, so the panel is the size of the map at the
+		# current zoom and its own coordinates are map pixels times the scale.
+		self.scale = GMMapPanel.DEFAULT_ZOOM
+		self.scroller = None
+		self.zoomListener = None
 		
 		super(GMMapPanel, self).__init__(parent)
 
@@ -549,6 +565,136 @@ class GMMapPanel(MapPanel):
 		self.Bind(wx.EVT_MOTION, self.onMouseMove)
 		self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.onCaptureLost)
 		
+	def setScroller(self, scroller):
+		"""The scrolled window this panel sits inside.  Zooming changes the
+		   panel's size, which is what that window scrolls over, and holding a
+		   point still across a zoom means scrolling it back into place."""
+		self.scroller = scroller
+
+	def setZoomListener(self, listener):
+		"""Called whenever the zoom changes, so the toolbar can keep up with
+		   it however it was changed."""
+		self.zoomListener = listener
+
+	def setScale(self, scale, user=True):
+		"""user is False when a map's saved zoom is being restored, which is
+		   nothing to flag as a change."""
+		scale = min(max(float(scale), GMMapPanel.ZOOM_LEVELS[0]),
+					GMMapPanel.ZOOM_LEVELS[-1])
+		if (scale == self.scale):
+			return
+		self.scale = scale
+		self._applyMinSize()
+		# Whatever is on screen was drawn at the old zoom, cursor included.
+		self.brushDrawnAt = None
+		if (self.zoomListener != None):
+			self.zoomListener()
+		if (user and (self.playerPanel != None)):
+			self.playerPanel._userViewChanged()
+		self.Refresh()
+
+	def zoomTo(self, scale, anchor=None, user=True):
+		"""Zoom, holding the map point under `anchor` - a point in this panel's
+		   own coordinates - where it is on screen.  Without one, the centre of
+		   what is on screen holds still, which is what makes zooming from the
+		   menu or the toolbar keep the GM where they were looking."""
+		if (self.mapImg is None):
+			self.setScale(scale, user)
+			return
+		view = self._viewStart()
+		vw, vh = self._visibleSize()
+		if (anchor is None):
+			anchor = (view[0] + vw / 2.0, view[1] + vh / 2.0)
+		mapPt = (anchor[0] / self.scale, anchor[1] / self.scale)
+		# Where the anchor sits within the visible area, which is what has to
+		# come out the same afterwards.
+		rel = (anchor[0] - view[0], anchor[1] - view[1])
+		old = self.scale
+		self.setScale(scale, user)
+		if (self.scale != old):
+			self._scrollTo(mapPt[0] * self.scale - rel[0],
+						   mapPt[1] * self.scale - rel[1])
+
+	def zoomStep(self, direction, anchor=None):
+		self.zoomTo(self.steppedZoom(direction), anchor)
+
+	def steppedZoom(self, direction):
+		"""The next level up or down the ladder from wherever the zoom is now.
+
+		   Worked out from the scale rather than an index into the ladder, so a
+		   level that is not on it still steps somewhere sensible."""
+		levels = GMMapPanel.ZOOM_LEVELS
+		if (direction > 0):
+			for level in levels:
+				if (level > (self.scale + 1e-6)):
+					return level
+			return levels[-1]
+		for level in reversed(levels):
+			if (level < (self.scale - 1e-6)):
+				return level
+		return levels[0]
+
+	def levelAtOrBelow(self, scale):
+		"""The largest level on the ladder that is no bigger than scale."""
+		best = GMMapPanel.ZOOM_LEVELS[0]
+		for level in GMMapPanel.ZOOM_LEVELS:
+			if (level <= (scale + 1e-6)):
+				best = level
+		return best
+
+	def nearestZoomLevel(self, scale):
+		return min(GMMapPanel.ZOOM_LEVELS, key=lambda level: abs(level - scale))
+
+	def fitZoomLevel(self):
+		"""The largest level that still fits the whole map in the window."""
+		if (self.map is None):
+			return self.scale
+		w, h = self.map.size
+		vw, vh = self._visibleSize()
+		if ((w <= 0) or (h <= 0) or (vw <= 0) or (vh <= 0)):
+			return self.scale
+		return self.levelAtOrBelow(min(vw / float(w), vh / float(h)))
+
+	def _viewStart(self):
+		"""How far the scrolled window has been scrolled, in pixels."""
+		if (self.scroller is None):
+			return (0, 0)
+		return self.scroller.CalcUnscrolledPosition(0, 0)
+
+	def _visibleSize(self):
+		"""How much of the panel can be seen at once."""
+		if (self.scroller is None):
+			return self.GetClientSize()
+		return self.scroller.GetClientSize()
+
+	def _scrollTo(self, x, y):
+		if (self.scroller is None):
+			return
+		# Scroll() counts in scroll units rather than pixels.
+		unitX, unitY = self.scroller.GetScrollPixelsPerUnit()
+		self.scroller.Scroll(int(round(x / unitX)) if unitX else 0,
+							 int(round(y / unitY)) if unitY else 0)
+
+	def _applyMinSize(self):
+		"""The panel is the map at the current zoom; the scrolled window sizes
+		   itself around that."""
+		if (self.mapImg is None):
+			return
+		bsz = self.mapImg.GetSize()
+		self.SetMinSize(wx.Size(max(int(round(bsz.width * self.scale)), 1),
+								max(int(round(bsz.height * self.scale)), 1)))
+		if (self.scroller != None):
+			# Leave the scroll position alone: a zoom puts it back itself, and
+			# scrolling to the top on every zoom would throw the view away.
+			self.scroller.SetupScrolling(scrollToTop=False, scrollIntoView=False)
+
+	def _clientToMap(self, pt):
+		"""A point in this panel's own coordinates as map pixels.  Floored to
+		   whole pixels: everything downstream of a brush indexes the mask with
+		   them."""
+		return (int(math.floor(pt[0] / self.scale)),
+				int(math.floor(pt[1] / self.scale)))
+
 	def setBrush(self, brush):
 		self.brush = brush
 		# Anchors are not comparable between brushes - a hex brush counts in
@@ -600,11 +746,17 @@ class GMMapPanel(MapPanel):
 			return None
 		return self.playerPanel.getViewportRect()
 
+	def _viewportTolerance(self):
+		"""The grab tolerance is a distance on screen, so how much of the map
+		   it covers depends on the zoom."""
+		return GMMapPanel.VIEWPORT_TOLERANCE / self.scale
+
 	def _viewportHitTest(self, pos):
+		"""pos is in map pixels, which is what the overlay is measured in."""
 		rect = self._viewportRect()
 		if (rect is None):
 			return None
-		return viewport.hitTest(rect, pos, GMMapPanel.VIEWPORT_TOLERANCE)
+		return viewport.hitTest(rect, pos, self._viewportTolerance())
 
 	def _setCursorFor(self, key):
 		if (key == self.cursorKey):
@@ -623,7 +775,7 @@ class GMMapPanel(MapPanel):
 		rect = self._viewportRect()
 		if (rect is None):
 			return False
-		handle = viewport.hitTest(rect, pos, GMMapPanel.VIEWPORT_TOLERANCE)
+		handle = viewport.hitTest(rect, pos, self._viewportTolerance())
 		self.viewportHandle = handle or GMMapPanel.VIEWPORT_MOVE
 		self.viewportBase = rect
 		self.viewportGrabPt = pos
@@ -642,7 +794,8 @@ class GMMapPanel(MapPanel):
 		if ((self.viewportBase is None) or (self.playerPanel is None)):
 			return
 		if (self.viewportHandle == GMMapPanel.VIEWPORT_MOVE):
-			# The rectangle follows the cursor one-for-one; the GM panel is 1:1.
+			# Both points are already map pixels, so the rectangle follows the
+			# cursor one-for-one at any zoom.
 			rect = (self.viewportBase[0] + pos[0] - self.viewportGrabPt[0],
 					self.viewportBase[1] + pos[1] - self.viewportGrabPt[1],
 					self.viewportBase[2], self.viewportBase[3])
@@ -674,24 +827,24 @@ class GMMapPanel(MapPanel):
 		self.Refresh()
 
 	def onLeftDown(self, evt):
-		if (self._grabViewport(evt.GetPosition())):
+		pos = self._clientToMap(evt.GetPosition())
+		if (self._grabViewport(pos)):
 			return
 		if (self._forwardsToPlayer(evt)):
-			self.forwardAnchor = evt.GetPosition()
+			self.forwardAnchor = pos
 			return
 		if ((self.brush != None) and self.canPaint()):
-			pos = evt.GetPosition()
 			self.map.applyBrush(self.brush, pos[0], pos[1])
 			self.lastBrushPt = self.brush.anchor(pos[0], pos[1])
 			
 	def onRightDown(self, evt):
-		if (self._grabViewport(evt.GetPosition())):
+		pos = self._clientToMap(evt.GetPosition())
+		if (self._grabViewport(pos)):
 			return
 		if (self._forwardsToPlayer(evt)):
-			self.forwardAnchor = evt.GetPosition()
+			self.forwardAnchor = pos
 			return
 		if ((self.brush != None) and self.canPaint()):
-			pos = evt.GetPosition()
 			self.map.unapplyBrush(self.brush, pos[0], pos[1])
 			self.lastBrushPt = self.brush.anchor(pos[0], pos[1])
 
@@ -708,20 +861,23 @@ class GMMapPanel(MapPanel):
 			evt.Skip()
 
 	def onWheel(self, evt):
+		if (evt.ControlDown() or evt.CmdDown()):
+			# Zoom this panel, keeping whatever is under the cursor there.
+			self.zoomStep(1 if (evt.GetWheelRotation() > 0) else -1,
+						  evt.GetPosition())
+			return
 		if (not self._forwardsToPlayer(evt)):
 			# Leave the wheel alone so the scrolled panel keeps scrolling.
 			evt.Skip()
 			return
 		increment = 0.1 if (evt.GetWheelRotation() > 0) else -0.1
-		# This panel draws the map 1:1, so its client coords are map pixels.
-		pos = evt.GetPosition()
-		self.playerPanel.zoomAtMapPoint(increment, (pos[0], pos[1]))
+		self.playerPanel.zoomAtMapPoint(increment,
+										self._clientToMap(evt.GetPosition()))
 
-	def _forwardDrag(self, evt):
-		pos = evt.GetPosition()
+	def _forwardDrag(self, evt, pos):
 		if (evt.LeftIsDown() or evt.RightIsDown()):
 			if (self.forwardAnchor is not None):
-				# 1:1 panel, so this delta is already in map pixels.
+				# Both points are map pixels already, whatever the zoom.
 				self.playerPanel.panByMapDelta(pos[0] - self.forwardAnchor[0],
 											   pos[1] - self.forwardAnchor[1])
 			self.forwardAnchor = pos
@@ -729,9 +885,13 @@ class GMMapPanel(MapPanel):
 			self.forwardAnchor = None
 
 	def onMouseMove(self, evt):
+		# Everything below works in map pixels, so the zoom is undone once here
+		# rather than in each of the things the mouse can be driving.
+		pos = self._clientToMap(evt.GetPosition())
+
 		if (self.viewportHandle is not None):
 			if (evt.LeftIsDown() or evt.RightIsDown()):
-				self._dragViewport(evt.GetPosition())
+				self._dragViewport(pos)
 			else:
 				self._endViewportDrag()
 			return
@@ -740,13 +900,13 @@ class GMMapPanel(MapPanel):
 			# The overlay owns the mouse: edges and corners resize, the rest grabs.
 			self._setForwarding(False)
 			self.forwardAnchor = None
-			self.viewportHover = self._viewportHitTest(evt.GetPosition())
+			self.viewportHover = self._viewportHitTest(pos)
 			self._setCursorFor(self.viewportHover or GMMapPanel.VIEWPORT_MOVE)
 			return
 
 		if (self._forwardsToPlayer(evt)):
 			self._setForwarding(True)
-			self._forwardDrag(evt)
+			self._forwardDrag(evt, pos)
 			return
 		self._setForwarding(False)
 		self.forwardAnchor = None
@@ -754,7 +914,7 @@ class GMMapPanel(MapPanel):
 		self._setCursorFor(None)
 
 		self.axisLock = (evt.ShiftDown(), evt.ControlDown())
-		mousePos = evt.GetPosition()
+		mousePos = pos
 		if (not self.axisLock[0] and not self.axisLock[1]):
 			self.mouse = mousePos
 		elif (self.axisLock[0]):
@@ -784,8 +944,8 @@ class GMMapPanel(MapPanel):
 		self._refreshBrushCursor()
 
 	def _brushRect(self, pt):
-		x0, y0, x1, y1 = self.brush.bounds(pt[0], pt[1])
-		return wx.Rect(x0, y0, x1 - x0, y1 - y0)
+		"""Where a brush at pt - a map point - lands on the panel."""
+		return self._mapRectToClient(self.brush.bounds(pt[0], pt[1]))
 
 	def _refreshBrushCursor(self):
 		"""Invalidate just the brush cursor: where it is on screen now, and
@@ -816,14 +976,18 @@ class GMMapPanel(MapPanel):
 	def _drawViewport(self, gc):
 		rect = self._viewportRect()
 		if (rect is not None):
-			viewport.draw(gc, rect, GMMapPanel.VIEWPORT_HANDLE_SIZE)
+			# Drawn in panel coordinates rather than under the zoom, so the
+			# outline stays a line and the handles stay grabbable however far
+			# the map is zoomed out.
+			viewport.draw(gc, [v * self.scale for v in rect],
+						  GMMapPanel.VIEWPORT_HANDLE_SIZE)
 
 	def _drawMap(self, gc):
 		w, h = self.GetSize()
 		if (self.mapImg != None):
 			bsz = self.mapImg.GetSize()
-			w = max(bsz.width, w)
-			h = max(bsz.height, h)
+			w = max(int(math.ceil(bsz.width * self.scale)), w)
+			h = max(int(math.ceil(bsz.height * self.scale)), h)
 
 		color = wx.Colour(0, 0, 0)
 		gc.SetBrush(wx.Brush(color))
@@ -833,40 +997,61 @@ class GMMapPanel(MapPanel):
 			bsz = self.mapImg.GetSize()
 			color = wx.Colour(255, 255, 255)
 			gc.SetBrush(wx.Brush(color))
+			gc.PushState()
+			self._applyZoom(gc)
 			gc.DrawBitmap(self._mapBitmap(),
 						  0, 
 						  0,				  
 						  bsz.width, 
 						  bsz.height)		
+			gc.PopState()
 
 	def _drawGrid(self, gc, box):
 		if (self.grid != None):
-			# Base grid.  This panel draws 1:1, so the box is already in map
-			# coordinates.
+			# Base grid.  The grid counts in map pixels, so the box being
+			# repainted has to be carried back out of the zoom first.
 			bsz = self.mapImg.GetSize()
-			self.grid.drawGrid(gc, bsz.width, bsz.height, box)	
-			
+			gc.PushState()
+			self._applyZoom(gc)
+			clip = tuple(v / self.scale for v in box)
+			self.grid.drawGrid(gc, bsz.width, bsz.height, clip)	
+			gc.PopState()
+
+	def _applyZoom(self, gc):
+		if (self.scale != 1.0):
+			gc.Scale(self.scale, self.scale)
+
 	def _drawBrush(self, gc):
 		# Cursor
 		self.brushDrawnAt = None
 		if ((self.brush != None) and (not self.forwarding) and (not self.showViewport)):
 			color = wx.Colour(0, 255, 0, 128)
 			gc.SetBrush(wx.Brush(color))
+			gc.PushState()
+			self._applyZoom(gc)
+			# The brush draws itself where it would paint, which is in map
+			# pixels - the same place the dab would land.
 			self.brush.drawToGc(gc, self.mouse[0], self.mouse[1])
+			gc.PopState()
 			self.brushDrawnAt = self.mouse
 			
 	def _alpha(self, mask, box=None):
 		return gfx.gmAlpha(mask, box)
 
 	def _mapRectToClient(self, box):
-		# This panel draws the map 1:1 and is itself scrolled, so its own
-		# coordinates are map pixels.
-		return wx.Rect(box[0], box[1], box[2] - box[0], box[3] - box[1])
+		# This panel is scrolled rather than panned, so a box of map pixels
+		# lands at its own position times the zoom.  Rounded outwards, plus a
+		# pixel of slack for the edge the scaling lands between.
+		left = int(math.floor(box[0] * self.scale)) - 1
+		top = int(math.floor(box[1] * self.scale)) - 1
+		right = int(math.ceil(box[2] * self.scale)) + 1
+		bottom = int(math.ceil(box[3] * self.scale)) + 1
+		return wx.Rect(left, top, right - left, bottom - top)
 
 	def _onImageCreated(self):
 		# Only when the image appears or changes size: doing this on every dab
 		# put a layout pass in the middle of every mouse move.
-		self.SetMinSize(self.mapImg.GetSize())
+		self._applyMinSize()
 
 	def _updateGrid(self):
 		super(GMMapPanel, self)._updateGrid()
@@ -876,12 +1061,23 @@ class GMMapPanel(MapPanel):
 	def reset(self):
 		super(GMMapPanel, self).reset()
 		self.brush = None
+		# Back to 100% for the incoming map; whatever zoom it was left at comes
+		# back out of its own settings a moment later.  Set directly rather
+		# than through setScale: there is no image to resize the panel around
+		# yet, and this is not the GM changing anything.
+		self.scale = GMMapPanel.DEFAULT_ZOOM
 		
 	def readSettings(self, settings):
 		for child in settings:
 			if (child.tag == "viewport"):
 				self.setShowViewport(child.get("visible") == "true", user=False)
+			elif (child.tag == "zoom"):
+				# Snapped to the ladder, so a hand-edited file cannot leave the
+				# view at a level nothing in the UI can name.
+				self.setScale(self.nearestZoomLevel(float(child.get("scale"))),
+							  user=False)
 	
 	def writeSettings(self, settings):
 		settings.append(etree.Element("viewport",
 									  visible=str(self.showViewport).lower()))
+		settings.append(etree.Element("zoom", scale=str(self.scale)))
