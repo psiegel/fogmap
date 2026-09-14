@@ -56,7 +56,6 @@ class GMFrame(MapPanelFrame):
 		sizer = wx.BoxSizer(wx.VERTICAL)
 
 		self.brushBar = self.__createBrushToolbar()
-		sizer.Add(self.brushBar, 0, wx.EXPAND)
 		self.brushBar.Realize()
 
 		self.scrollPanel = scrolled.ScrolledPanel(self, -1)
