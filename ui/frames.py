@@ -6,6 +6,7 @@ import wx.lib.scrolledpanel as scrolled
 import data
 
 from . import mappanel
+from . import projecttree
 from . import tools
 
 class MapPanelFrame(wx.Frame):	
@@ -49,25 +50,37 @@ class GMFrame(MapPanelFrame):
 	def __init__(self, *args, **kwargs):
 		super(GMFrame, self).__init__(*args, **kwargs)
 
-		self.__readRecentPaths()
+		self.__readConfig()
 		self.__createMenu()
 		self.__rebuildRecentFilesMenu()
+		self.__rebuildRecentProjectsMenu()
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
 
 		self.brushBar = self.__createBrushToolbar()
 		self.brushBar.Realize()
 
-		self.scrollPanel = scrolled.ScrolledPanel(self, -1)
+		# The tree lives in the left half of a splitter that is left unsplit
+		# until a project is opened, so opening a lone file looks as it always did.
+		self.splitter = wx.SplitterWindow(self, -1, style=wx.SP_LIVE_UPDATE | wx.SP_3DSASH)
+		self.splitter.SetMinimumPaneSize(120)
+
+		self.projectTree = projecttree.ProjectTreePanel(self.splitter)
+		self.projectTree.setSelectionListener(self.onProjectFileSelected)
+		self.projectTree.Hide()
+
+		self.scrollPanel = scrolled.ScrolledPanel(self.splitter, -1)
 		scrollSizer = wx.BoxSizer(wx.HORIZONTAL)
 		self.setPanel(mappanel.GMMapPanel(self.scrollPanel))
 		scrollSizer.Add(self.panel, 1, wx.EXPAND)
 		self.scrollPanel.SetSizer(scrollSizer)
 		self.scrollPanel.SetupScrolling()
-		self.panel.setViewportListener(self.onViewportChanged)
-		self.onViewportChanged()
-		sizer.Add(self.scrollPanel, 1, wx.EXPAND)
+		self.panel.setViewportListener(self.updateControlState)
 
+		self.splitter.Initialize(self.scrollPanel)
+		sizer.Add(self.splitter, 1, wx.EXPAND)
+
+		self.updateControlState()
 		self.SetSizer(sizer)
 
 	def setMap(self, map):
@@ -77,7 +90,60 @@ class GMFrame(MapPanelFrame):
 	def hasGrid(self):
 		return (self.panel != None) and \
 			   (self.panel.map != None) and \
+			   self.panel.map.editable and \
 			   (self.panel.map.grid != None)
+
+	# --- projects -------------------------------------------------------------
+
+	def setProject(self, project):
+		"""Show or hide the sidebar, depending on whether there is a project."""
+		self.projectTree.setProject(project)
+		if (project is None):
+			if (self.splitter.IsSplit()):
+				self.sashPos = self.splitter.GetSashPosition()
+				self.splitter.Unsplit(self.projectTree)
+		else:
+			if (not self.splitter.IsSplit()):
+				self.projectTree.Show()
+				self.splitter.SplitVertically(self.projectTree, self.scrollPanel,
+											  self.sashPos)
+			self.__addToRecentProjects(project.root)
+		self.updateTitle()
+
+	def refreshProjectTree(self):
+		self.projectTree.rebuild()
+		self.refreshDirtyMarks()
+
+	def refreshDirtyMarks(self):
+		doc = wx.GetApp().doc
+		path = doc.path if (doc != None) else None
+		self.projectTree.refreshDirtyMarks(path, (doc != None) and doc.isDirty())
+		self.updateTitle()
+
+	def onProjectFileSelected(self, path):
+		wx.GetApp().activateDocument(path)
+
+	def onDocumentChanged(self):
+		"""Bring the window into line with whatever document is now open."""
+		# The panel drops its brush when the map changes, so the toolbar has to
+		# agree or the GM is left with a brush type selected and no brush.
+		self.brushType.SetStringSelection("None")
+		self.updateControlState()
+		doc = wx.GetApp().doc
+		if ((doc != None) and (doc.path != None)):
+			self.projectTree.selectPath(doc.path)
+		self.refreshDirtyMarks()
+
+	def updateTitle(self):
+		app = wx.GetApp()
+		title = "GM View"
+		if (app.project != None):
+			title += " - " + app.project.name
+		if ((app.doc != None) and (app.doc.path != None)):
+			title += " - " + app.doc.name
+			if (app.doc.isDirty()):
+				title += " *"
+		self.SetTitle(title)
 
 	def __createMenu(self):
 		# Prepare the menu bar
@@ -92,12 +158,31 @@ class GMFrame(MapPanelFrame):
 		self.recentFilesMenu = wx.Menu()
 		fileMenu.AppendSubMenu(self.recentFilesMenu, "Open Recent")
 		self.menuBar.Append(fileMenu, "&File")
+
+		fileMenu.AppendSeparator()
+		fileMenu.Append(107, "Open &Project\tCTRL+SHIFT+O",
+						"Open a folder of maps and images.")
+		self.Bind(wx.EVT_MENU, self.onOpenProject, id=107)
+		self.recentProjectsMenu = wx.Menu()
+		fileMenu.AppendSubMenu(self.recentProjectsMenu, "Open Recent Project")
+		fileMenu.Append(108, "&Close Project", "Close the current project.")
+		self.Bind(wx.EVT_MENU, self.onCloseProject, id=108)
+		self.Bind(wx.EVT_UPDATE_UI, self.onProjectOpenUpdate, id=108)
+
+		fileMenu.AppendSeparator()
 		fileMenu.Append(104, "&Save\tCTRL+S", "Save the current map.")
 		self.Bind(wx.EVT_MENU, self.onFileSave, id=104)
+		self.Bind(wx.EVT_UPDATE_UI, self.onEditableDocUpdate, id=104)
+		fileMenu.Append(109, "Save A&ll\tCTRL+SHIFT+S",
+						"Save every map in the project with unsaved changes.")
+		self.Bind(wx.EVT_MENU, self.onFileSaveAll, id=109)
+		self.Bind(wx.EVT_UPDATE_UI, self.onSaveAllUpdate, id=109)
 		fileMenu.Append(105, "Save &As\tCTRL+A", "Save the current map to a new file.")
 		self.Bind(wx.EVT_MENU, self.onFileSaveAs, id=105)
+		self.Bind(wx.EVT_UPDATE_UI, self.onEditableDocUpdate, id=105)
 		fileMenu.Append(106, "S&wap Image\tCTRL+W", "Change image of existing map.")
 		self.Bind(wx.EVT_MENU, self.onSwapImage, id=106)
+		self.Bind(wx.EVT_UPDATE_UI, self.onEditableDocUpdate, id=106)
 
 		# Grid Menu
 		gridMenu = wx.Menu()
@@ -157,23 +242,25 @@ class GMFrame(MapPanelFrame):
 		self.Destroy()
 		wx.GetApp().ExitMainLoop()
 
+	def onClose(self, evt):
+		if (not wx.GetApp().confirmDiscardChanges()):
+			if (evt.CanVeto()):
+				evt.Veto()
+			return
+		self.__writeConfig()
+		super(GMFrame, self).onClose(evt)
+
 	def onFileNew(self, evt):
-		defaultDir, defaultFile = self.defaultDirAndFile()
-		wildcard = "All files (*.*)|*.*|"\
-				 "BMP Image (*.bmp)|*.bmp|"\
-				 "GIF Image (*.gif)|*.gif|" \
-				 "JPEG Image (*.jpg)|*.jpg|" \
-				 "PNG Image (*.png)|*.png"
-		dlg = wx.FileDialog(self, 
-							message="Select a Map Image", 
-							defaultDir=defaultDir,
-							defaultFile=defaultFile,
-							wildcard=wildcard,
-							style=wx.FD_OPEN | wx.FD_CHANGE_DIR)
-		if (dlg.ShowModal() == wx.ID_OK):
-			app = wx.GetApp()
-			app.newMap(dlg.GetPath())
-		dlg.Destroy()
+		path = self.__askForImage("Select a Map Image")
+		if (path is None):
+			return
+		app = wx.GetApp()
+		if (not app.newMap(path)):
+			return
+		if (app.project != None):
+			# Give it a home in the project straight away, so switching files
+			# never has to worry about an unsaved document with nowhere to go.
+			self.onFileSaveAs(evt)
 
 	def onFileOpen(self, evt):
 		defaultDir, defaultFile = self.defaultDirAndFile()
@@ -184,24 +271,44 @@ class GMFrame(MapPanelFrame):
 							wildcard="Map files (*.map)|*.map|All files (*.*)|*.*",
 							style=wx.FD_OPEN | wx.FD_CHANGE_DIR)
 		if (dlg.ShowModal() == wx.ID_OK):
-			app = wx.GetApp()
-			app.loadMap(dlg.GetPath())
-			self.__addToRecentFiles(dlg.GetPath())
+			if (wx.GetApp().activateDocument(dlg.GetPath())):
+				self.__addToRecentFiles(dlg.GetPath())
 		dlg.Destroy()
 
 	def onFileOpenRecent(self, evt, path):
 		if os.path.exists(path):
-			wx.GetApp().loadMap(path)
+			wx.GetApp().activateDocument(path)
 		else:
 			self.recentFiles.remove(path)
 			self.__rebuildRecentFilesMenu()
-			self.__writeRecentPaths()
+			self.__writeConfig()
+
+	def onOpenProject(self, evt):
+		dlg = wx.DirDialog(self, message="Choose a project folder",
+						   defaultPath=self.defaultDirAndFile()[0],
+						   style=wx.DD_DEFAULT_STYLE | wx.DD_DIR_MUST_EXIST)
+		if (dlg.ShowModal() == wx.ID_OK):
+			wx.GetApp().openProject(dlg.GetPath())
+		dlg.Destroy()
+
+	def onOpenRecentProject(self, evt, path):
+		if os.path.isdir(path):
+			wx.GetApp().openProject(path)
+		else:
+			self.recentProjects.remove(path)
+			self.__rebuildRecentProjectsMenu()
+			self.__writeConfig()
+
+	def onCloseProject(self, evt):
+		wx.GetApp().closeProject()
+
+	def onProjectOpenUpdate(self, evt):
+		evt.Enable(wx.GetApp().project != None)
 
 	def onFileSave(self, evt):
-		lastPath = wx.GetApp().lastSavePath
-		if (lastPath is not None):
-			app = wx.GetApp()
-			app.saveMap(lastPath)
+		app = wx.GetApp()
+		if ((app.doc != None) and (app.doc.path != None)):
+			app.saveDocument()
 		else:
 			self.onFileSaveAs(evt)
 
@@ -214,12 +321,27 @@ class GMFrame(MapPanelFrame):
 							wildcard="Map files (*.map)|*.map|All files (*.*)|*.*",
 							style=wx.FD_SAVE | wx.FD_CHANGE_DIR)
 		if (dlg.ShowModal() == wx.ID_OK):
-			app = wx.GetApp()
-			app.saveMap(dlg.GetPath())
+			wx.GetApp().saveDocument(dlg.GetPath())
 			self.__addToRecentFiles(dlg.GetPath())
 		dlg.Destroy()
 
+	def onFileSaveAll(self, evt):
+		wx.GetApp().saveAll()
+
+	def onSaveAllUpdate(self, evt):
+		evt.Enable(wx.GetApp().hasUnsavedChanges())
+
+	def onEditableDocUpdate(self, evt):
+		"""Saving and image swapping mean nothing for a plain image handout."""
+		doc = wx.GetApp().doc
+		evt.Enable((doc != None) and doc.editable)
+
 	def onSwapImage(self, evt):
+		path = self.__askForImage("Select a Map Image")
+		if (path != None):
+			wx.GetApp().swapMapImage(path)
+
+	def __askForImage(self, message):
 		defaultDir, defaultFile = self.defaultDirAndFile()
 		wildcard = "All files (*.*)|*.*|"\
 				 "BMP Image (*.bmp)|*.bmp|"\
@@ -227,24 +349,29 @@ class GMFrame(MapPanelFrame):
 				 "JPEG Image (*.jpg)|*.jpg|" \
 				 "PNG Image (*.png)|*.png"
 		dlg = wx.FileDialog(self, 
-							message="Select a Map Image", 
+							message=message, 
 							defaultDir=defaultDir,
 							defaultFile=defaultFile,
 							wildcard=wildcard,
 							style=wx.FD_OPEN | wx.FD_CHANGE_DIR)
-		if (dlg.ShowModal() == wx.ID_OK):
-			app = wx.GetApp()
-			app.swapMapImage(dlg.GetPath())
+		path = dlg.GetPath() if (dlg.ShowModal() == wx.ID_OK) else None
 		dlg.Destroy()
+		return path
 
 	def defaultDirAndFile(self):
-		lastPath = wx.GetApp().lastSavePath
+		app = wx.GetApp()
+		if ((app.doc != None) and (app.doc.path != None)):
+			return os.path.split(app.doc.path)
+		if (app.project != None):
+			return app.project.root, ""
+		lastPath = app.lastSavePath
 		if lastPath is None:
 			return os.getcwd(), ""
 		return os.path.split(lastPath)
 
 	def onGridToggle(self, evt):
-		self.panel.map.grid.visible = evt.IsChecked()
+		if (self.hasGrid()):
+			self.panel.map.grid.visible = evt.IsChecked()
 
 	def onGridVisibleUpdate(self, evt):		
 		gridExists = self.hasGrid() and (self.panel.map.grid.type != data.Grid.GRID_NONE)
@@ -252,6 +379,8 @@ class GMFrame(MapPanelFrame):
 		evt.Check(gridExists and self.panel.map.grid.visible)
 
 	def onGridSettings(self, evt):
+		if (not self.hasGrid()):
+			return
 		currentGrid = self.panel.map.grid.copy()
 		dlg = tools.GridDialog(self.panel.map.grid, self, -1, "Grid Settings")
 		dlg.CenterOnParent()
@@ -265,14 +394,18 @@ class GMFrame(MapPanelFrame):
 	def hasPlayerView(self):
 		return (self.panel != None) and (self.panel.playerPanel != None)
 
-	def onViewportChanged(self):
+	def updateControlState(self):
 		"""Keep the toolbar in step however the overlay got toggled - button,
-		   menu, or a setting read back from a map file."""
+		   menu, or a setting read back from a map file - and with whether the
+		   open document can be painted on at all."""
 		active = (self.panel != None) and self.panel.showViewport
 		self.viewportToggle.SetValue(active)
-		# The overlay takes over the mouse, so the brush is unavailable.
-		self.brushType.Enable(not active)
-		self.brushSize.Enable(not active)
+		self.viewportToggle.Enable(self.hasPlayerView())
+		# The overlay takes over the mouse, and a plain image has no fog, so
+		# either way the brush is unavailable.
+		canPaint = (self.panel != None) and self.panel.canPaint() and (not active)
+		self.brushType.Enable(canPaint)
+		self.brushSize.Enable(canPaint)
 
 	def onViewportButton(self, evt):
 		self.panel.setShowViewport(self.viewportToggle.GetValue())
@@ -291,6 +424,8 @@ class GMFrame(MapPanelFrame):
 			self.panel.playerPanel.showMapRect((0, 0, w, h))
 
 	def onBrushTypeChanged(self, evt):
+		if (not self.panel.canPaint()):
+			return
 		brush = None
 		brushType = self.brushType.GetStringSelection()
 		self.updateBrushSizeSlider(brushType == "Grid")
@@ -332,42 +467,75 @@ class GMFrame(MapPanelFrame):
 			self.brushSize.SetRange(5, 500)
 			self.brushSize.SetValue(newValue)
 
-	def __addToRecentFiles(self, path):
-		if path in self.recentFiles:
-			self.recentFiles.remove(path)
-		self.recentFiles.insert(0, path)
-		self.__rebuildRecentFilesMenu()
-		self.__writeRecentPaths()
+	# Both recent lists are capped so their menu ids cannot run into the next
+	# range: files use 301+, projects 401+.
+	MAX_RECENT = 10
 
-	def __readRecentPaths(self):
-		self.recentFiles = []
+	def __addToRecentFiles(self, path):
+		self.recentFiles = self.__addToRecent(self.recentFiles, path)
+		self.__rebuildRecentFilesMenu()
+		self.__writeConfig()
+
+	def __addToRecentProjects(self, path):
+		self.recentProjects = self.__addToRecent(self.recentProjects, path)
+		self.__rebuildRecentProjectsMenu()
+		self.__writeConfig()
+
+	def __addToRecent(self, paths, path):
+		if path in paths:
+			paths.remove(path)
+		paths.insert(0, path)
+		return paths[:GMFrame.MAX_RECENT]
+
+	def __readConfig(self):
 		config = wx.Config("fogmap")
-		config.SetPath("/RecentFiles")
+		self.recentFiles = self.__readPathGroup(config, "/RecentFiles")
+		self.recentProjects = self.__readPathGroup(config, "/RecentProjects")
+		config.SetPath("/")
+		self.sashPos = config.ReadInt("ProjectSashPos", 220)
+
+	def __readPathGroup(self, config, group):
+		paths = []
+		config.SetPath(group)
 		more, value, index = config.GetFirstEntry()
 		while more:
-			path = config.Read(value)
-			self.recentFiles.append(path)
+			paths.append(config.Read(value))
 			more, value, index = config.GetNextEntry(index)
+		return paths[:GMFrame.MAX_RECENT]
 
-	def __writeRecentPaths(self):
+	def __writeConfig(self):
 		config = wx.Config("fogmap")
-		config.DeleteGroup("/RecentFiles")
-		config.SetPath("/RecentFiles")
-		for index, path in enumerate(self.recentFiles):
-			config.Write(str(index), path)
+		self.__writePathGroup(config, "/RecentFiles", self.recentFiles)
+		self.__writePathGroup(config, "/RecentProjects", self.recentProjects)
+		config.SetPath("/")
+		if (self.splitter.IsSplit()):
+			self.sashPos = self.splitter.GetSashPosition()
+		config.WriteInt("ProjectSashPos", self.sashPos)
 		config.Flush()
 
-	def __rebuildRecentFilesMenu(self):
-		items = self.recentFilesMenu.GetMenuItems()
-		for item in items:
-			self.Unbind(wx.EVT_MENU, id=item.GetId())
-			self.recentFilesMenu.Remove(item)
-		for idx, path in enumerate(self.recentFiles):
-			menuId = 301 + idx
-			self.__createRecentFileMenuItem(menuId, path)
+	def __writePathGroup(self, config, group, paths):
+		config.DeleteGroup(group)
+		config.SetPath(group)
+		for index, path in enumerate(paths):
+			config.Write(str(index), path)
 
-	def __createRecentFileMenuItem(self, menuId, path):
-		self.recentFilesMenu.Append(menuId, path)
-		self.Bind(wx.EVT_MENU, lambda evt: self.onFileOpenRecent(evt, path), id=menuId)
+	def __rebuildRecentFilesMenu(self):
+		self.__rebuildRecentMenu(self.recentFilesMenu, self.recentFiles, 301,
+								 self.onFileOpenRecent)
+
+	def __rebuildRecentProjectsMenu(self):
+		self.__rebuildRecentMenu(self.recentProjectsMenu, self.recentProjects, 401,
+								 self.onOpenRecentProject)
+
+	def __rebuildRecentMenu(self, menu, paths, firstId, handler):
+		for item in menu.GetMenuItems():
+			self.Unbind(wx.EVT_MENU, id=item.GetId())
+			menu.Remove(item)
+		for idx, path in enumerate(paths):
+			menuId = firstId + idx
+			menu.Append(menuId, path)
+			self.Bind(wx.EVT_MENU,
+					  lambda evt, path=path: handler(evt, path),
+					  id=menuId)
 
 	

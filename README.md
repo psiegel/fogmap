@@ -23,7 +23,57 @@ pip install -r requirements.txt
 source .venv/bin/activate
 python app.py                # start empty; use File > New to pick a map image
 python app.py -f test.map    # open an existing .map file
+python app.py -p ~/campaign  # open a folder of maps as a project
 ```
+
+## Projects
+
+A project is just a folder of maps and images. **File > Open Project** puts a tree
+of it down the left of the GM window, and clicking a file opens it:
+
+- a `.map` or `.xml` file opens as a map, with its fog and its grid;
+- an image (PNG, JPG, GIF, BMP, TIFF, WEBP) is shown to the players whole and
+  **unmasked**, for handouts and battle maps that need no fog. The brush and the
+  grid controls grey out, and there is nothing to save.
+
+The GM can click back and forth freely. Unsaved fog stays put: switching away from
+a map you have painted on keeps those changes, and clicking back returns the map
+exactly as you left it, including where the Player View was pointing.
+
+**Save** (`Ctrl+S`) writes the map you are looking at. **Save All**
+(`Ctrl+Shift+S`) writes every map in the project that has unsaved changes, whether
+or not it is the one on screen. Modified files are shown in bold with a `*`, both
+in the tree and in the title bar.
+
+### A map's image is nested under it
+
+If a map's image sits in the same folder as the map, the tree tucks it underneath
+the map rather than listing it alongside:
+
+```
+dungeon/
+  dungeon.map            <- click this for the fogged map
+    +-- dungeon.jpg      <- collapsed; expand to show the players the whole thing
+  handout-letter.png     <- an image no map uses, listed normally
+```
+
+That is deliberate. Clicking the bare image would throw the entire unmasked map
+onto the players' screen, so reaching it takes a decision rather than a stray
+click. Expand the map and click the image when you really do want to show the
+whole map at once.
+
+Press `F5` over the tree to re-read the folder after adding files on disk.
+
+### Unsaved changes and crashes
+
+Only the map being looked at is held in memory - a big map is tens of megabytes,
+and a session can cover a lot of them. When you switch away from a map with
+unsaved fog, it is written to a temporary copy in a hidden `.fogmap/` folder at
+the project root, in the same format as a real map file. Save All then just copies
+those over the originals.
+
+A clean exit always empties `.fogmap/`, so if fogmap is killed or crashes, the
+copies left in there are offered back the next time that project is opened.
 
 ## Controls
 
@@ -45,7 +95,9 @@ python app.py -f test.map    # open an existing .map file
 | Toolbar | Brush type (None / Round / Square / Grid) and size |
 | **Player Viewport** button | Toggle player viewport mode (same as `Ctrl+B`) |
 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+A` | New / Open / Save / Save As |
+| `Ctrl+Shift+O` / `Ctrl+Shift+S` | Open Project / Save All |
 | `Ctrl+W` | Swap the underlying image, keeping the revealed mask |
+| Click a file in the sidebar | Open it; `F5` re-reads the folder |
 | Grid menu | Toggle the grid and change its type (None / Square / Hex) and size |
 
 The Grid brush follows whichever grid is enabled, so it reveals whole squares or
@@ -103,6 +155,14 @@ with the map.
 
 A `.map` file is XML holding a *path* to the map image plus the two reveal masks
 (base64 PNG-less raw bytes), plus the Player View's zoom and pan and the GM's
-overlay setting. The image itself is not embedded, so moving a map between
-machines means keeping the image at the same path, or using **Swap Image** to
-re-point it.
+overlay setting. The image itself is not embedded.
+
+The path is stored **relative to the `.map` file**, so a project folder can be
+copied or moved between machines as a unit and its maps still find their images.
+An image outside the project is stored relative too (`../../art/keep.jpg`), which
+survives the project moving only if the image moves with it.
+
+Older map files hold an absolute path. Those are still read as they stand, and are
+converted to a relative one the next time that map is saved — so a map keeps
+behaving exactly as it did until you save it. For an absolute path that has gone
+stale, **Swap Image** re-points it.

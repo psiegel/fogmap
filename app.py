@@ -1,18 +1,34 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import wx
-from PIL import Image
 from lxml import etree
 
 import data
-import ui	
+import ui
+
 
 class ImageTestApp(wx.App):
-	def __init__(self, file):
+	"""Holds the project and the one document currently being looked at.
+
+	   Everything else in the project stays on disk: a map with unsaved changes
+	   is flushed to a temp copy when the GM switches away from it, so a session
+	   spent jumping between big maps costs one map's worth of memory rather
+	   than all of them."""
+
+	# Class defaults, so the update-UI handlers the frames install can safely
+	# run before __init__ has finished.
+	project = None
+	doc = None
+	lastSavePath = None
+	dirtyShown = False
+
+	def __init__(self, file=None, project=None):
 		super(ImageTestApp, self).__init__(0)
-		self.lastSavePath = None
+		if (project is not None):
+			self.openProject(project)
 		if (file is not None):
-			self.loadMap(file)
+			self.activateDocument(file)
 
 	def OnInit(self):
 		self.playerFrame = ui.PlayerFrame(None, -1, "Player View", size=(800, 600))
@@ -22,80 +38,326 @@ class ImageTestApp(wx.App):
 		self.gmFrame.Show(True)
 
 		self.gmFrame.panel.setPlayerPanel(self.playerFrame.panel)
+		self.playerFrame.panel.setUserViewListener(self.onPlayerViewChanged)
 
-		return True	
-	
-	def newMap(self, path):
-		map = data.Map.createNew(path)
-		self.setMap(map)
-		self.lastSavePath = None
+		return True
 
-	def loadMap(self, path):
-		self.lastSavePath = path
-		xml = etree.parse(path)
-		root = xml.getroot()	
+	# --- projects -------------------------------------------------------------
 
-		if (root.tag == "map"):
-			# Backwards compatibility
-			self.setMap(data.Map.read(root))
-		else:
-			for child in root:
-				if (child.tag == "map"):
-					self.setMap(data.Map.read(child))
-				elif (child.tag == "settings"):
-					self.readSettings(child)
+	def openProject(self, path):
+		if (not self.closeProject()):
+			return False
 
-	def swapMapImage(self, path):
-		self.map.replaceImage(path)
-		self.setMap(self.map)
+		project = data.Project(path)
+		# A clean exit always empties .fogmap/, so anything still in there was
+		# left behind by a crash.
+		leftovers = project.findLeftoverTemps()
+		if (leftovers):
+			if (self.__confirmRestore(leftovers)):
+				project.adoptTemps(leftovers)
+			else:
+				project.discardTemps()
 
+		self.project = project
+		if (self.doc is not None):
+			self.doc.project = project
+		self.gmFrame.setProject(project)
+		return True
 
-	def saveMap(self, path):
-		self.lastSavePath = path
-		root = etree.Element("fogmap")
-		
-		mapNode = etree.Element("map")
-		self.map.write(mapNode)
-		root.append(mapNode)
-				
+	def closeProject(self):
+		"""Returns False if the GM cancelled out of the unsaved changes prompt.
+
+		   The open document stays open, just no longer part of a project."""
+		if (self.project is None):
+			return True
+		if (not self.confirmDiscardChanges()):
+			return False
+		self.project = None
+		if (self.doc is not None):
+			self.doc.project = None
+		self.gmFrame.setProject(None)
+		return True
+
+	# --- documents ------------------------------------------------------------
+
+	def activateDocument(self, path):
+		path = os.path.abspath(path)
+		if ((self.doc is not None) and (self.doc.path is not None) and
+			(os.path.abspath(self.doc.path) == path)):
+			return True
+		if (not os.path.exists(path)):
+			self.__error("%s no longer exists." % path, "File Not Found")
+			self.gmFrame.onDocumentChanged()
+			return False
+
+		if (not self.__confirmLeavingUntitled()):
+			self.gmFrame.onDocumentChanged()
+			return False
+
+		# Capture before opening: the panels still hold the outgoing document's
+		# view, and opening can fail without having disturbed anything.
+		self.captureSettings()
+		try:
+			doc = data.Document.open(path, self.project)
+		except Exception as err:
+			self.__error("Could not open %s:\n\n%s" % (path, err), "Open Failed")
+			self.gmFrame.onDocumentChanged()
+			return False
+
+		self.__releaseDocument()
+		self.__installDocument(doc)
+		return True
+
+	def newMap(self, imagePath):
+		if (not self.__confirmLeavingUntitled()):
+			return False
+		self.captureSettings()
+		try:
+			doc = data.Document.createNew(imagePath, self.project)
+		except Exception as err:
+			self.__error("Could not read %s:\n\n%s" % (imagePath, err), "New Map Failed")
+			return False
+		self.__releaseDocument()
+		self.__installDocument(doc)
+		return True
+
+	def swapMapImage(self, imagePath):
+		if ((self.doc is None) or (not self.doc.editable)):
+			return
+		try:
+			self.doc.map.replaceImage(imagePath)
+		except Exception as err:
+			self.__error("Could not read %s:\n\n%s" % (imagePath, err), "Swap Image Failed")
+			return
+		# The panels cache the image, so they have to be rebuilt around it.
+		self.playerFrame.setMap(self.doc.map)
+		self.gmFrame.setMap(self.doc.map)
+		self.noteDirty()
+
+	def __installDocument(self, doc):
+		self.doc = doc
+		self.dirtyShown = False
+		self.playerFrame.setMap(doc.map)
+		self.gmFrame.setMap(doc.map)
+		doc.map.addUpdateListener(self.noteDirty)
+		if ((self.project is not None) and (doc.path is not None)):
+			# The document now owns whatever was outstanding for this file.  Its
+			# temp copy is left on disk until the next flush replaces it, so a
+			# crash while it is open still has something to recover.
+			self.project.takeOver(doc.path)
+		self.__applySettings(doc)
+		if (doc.path is not None):
+			self.lastSavePath = doc.path
+		self.gmFrame.onDocumentChanged()
+
+	def __releaseDocument(self):
+		"""Push the open document's changes out to disk, or to the project's
+		   memory of where its view was, and let go of its pixels."""
+		doc = self.doc
+		if (doc is None):
+			return
+		if ((self.project is not None) and self.project.contains(doc.path)):
+			self.project.remember(doc.path, doc.settings)
+			if (doc.map.contentDirty):
+				try:
+					self.project.writeTemp(doc.path, doc.map, doc.settings)
+				except OSError as err:
+					self.__error("Could not hold onto unsaved changes to %s:\n\n%s"
+								 % (doc.name, err), "Save Failed")
+			elif (doc.viewDirty):
+				# Nothing but the player view moved, so there is no mask data
+				# worth writing; the settings are the whole of the change.
+				self.project.markViewDirty(doc.path, doc.settings)
+		doc.map.removeUpdateListener(self.noteDirty)
+		self.doc = None
+
+	def __confirmLeavingUntitled(self):
+		"""A new map that has never been saved has no file to be flushed to."""
+		doc = self.doc
+		if ((doc is None) or (doc.path is not None) or (not doc.isDirty())):
+			return True
+		dlg = wx.MessageDialog(self.gmFrame,
+							   "The new map has not been saved yet, and cannot be "
+							   "kept in the background.\n\nSave it now?",
+							   "Unsaved New Map",
+							   wx.YES_NO | wx.CANCEL | wx.ICON_EXCLAMATION)
+		dlg.SetYesNoCancelLabels("Save", "Discard", "Cancel")
+		result = dlg.ShowModal()
+		dlg.Destroy()
+		if (result == wx.ID_YES):
+			self.gmFrame.onFileSaveAs(None)
+			return self.doc.path is not None
+		return result == wx.ID_NO
+
+	# --- saving ---------------------------------------------------------------
+
+	def saveDocument(self, path=None):
+		doc = self.doc
+		if ((doc is None) or (not doc.editable)):
+			return False
+		target = path if (path is not None) else doc.path
+		if (target is None):
+			return False
+
+		self.captureSettings()
+		try:
+			doc.write(target)
+		except (OSError, IOError) as err:
+			self.__error("Could not save %s:\n\n%s" % (target, err), "Save Failed")
+			return False
+
+		oldPath = doc.path
+		doc.path = os.path.abspath(target)
+		doc.markClean()
+		self.dirtyShown = False
+		self.lastSavePath = doc.path
+
+		if (self.project is not None):
+			if (oldPath is not None):
+				self.project.clearDirty(oldPath)
+			self.project.clearDirty(doc.path)
+			self.project.remember(doc.path, doc.settings)
+			if (oldPath != doc.path):
+				# Saved somewhere new, which may have put a file in the tree.
+				self.gmFrame.refreshProjectTree()
+		self.gmFrame.onDocumentChanged()
+		return True
+
+	def saveAll(self):
+		"""Commit the open document plus every other map holding changes."""
+		if ((self.doc is not None) and self.doc.editable and self.doc.isDirty()):
+			if (self.doc.path is None):
+				self.gmFrame.onFileSaveAs(None)
+			else:
+				self.saveDocument()
+		if (self.project is not None):
+			try:
+				self.project.commitAll()
+			except (OSError, IOError) as err:
+				self.__error("Could not save every map:\n\n%s" % err, "Save All Failed")
+		self.gmFrame.refreshDirtyMarks()
+
+	def hasUnsavedChanges(self):
+		return (((self.doc is not None) and self.doc.isDirty()) or
+				((self.project is not None) and (self.project.dirtyCount() > 0)))
+
+	def confirmDiscardChanges(self):
+		"""Returns False only if the GM wants to stay where they are."""
+		if (not self.hasUnsavedChanges()):
+			return True
+
+		count = self.project.dirtyCount() if (self.project is not None) else 0
+		if ((self.doc is not None) and self.doc.isDirty()):
+			count += 1
+		dlg = wx.MessageDialog(self.gmFrame,
+							   "%d map%s unsaved changes." %
+							   (count, " has" if (count == 1) else "s have"),
+							   "Unsaved Changes",
+							   wx.YES_NO | wx.CANCEL | wx.ICON_EXCLAMATION)
+		dlg.SetYesNoCancelLabels("Save All", "Discard", "Cancel")
+		result = dlg.ShowModal()
+		dlg.Destroy()
+
+		if (result == wx.ID_YES):
+			self.saveAll()
+			return not self.hasUnsavedChanges()
+		if (result == wx.ID_NO):
+			if (self.doc is not None):
+				self.doc.markClean()
+			if (self.project is not None):
+				self.project.discardTemps()
+			self.dirtyShown = False
+			return True
+		return False
+
+	# --- change tracking ------------------------------------------------------
+
+	def onPlayerViewChanged(self):
+		"""Where the players are looking is part of what a map file holds, so
+		   moving it counts as a change worth keeping."""
+		if ((self.doc is None) or (not self.doc.editable) or self.doc.viewDirty):
+			return
+		self.doc.viewDirty = True
+		self.noteDirty()
+
+	def noteDirty(self):
+		"""Mark the document modified in the tree and title bar, once."""
+		if (self.dirtyShown or (self.doc is None) or (not self.doc.isDirty())):
+			return
+		self.dirtyShown = True
+		self.gmFrame.refreshDirtyMarks()
+
+	# --- settings -------------------------------------------------------------
+
+	def captureSettings(self):
+		"""Take the player view and the GM's overlay state off the panels and
+		   onto the document, so they come back when the GM does."""
+		if (self.doc is None):
+			return
 		settings = etree.Element("settings")
 		self.writeSettings(settings)
-		root.append(settings)
-		
-		with open(path, mode="wb") as f:
-			f.write(etree.tostring(root, pretty_print=True))
+		self.doc.settings = settings
 
-	def setMap(self, map):
-		self.map = map
-		if (self.playerFrame != None):
-			self.playerFrame.setMap(self.map)
-		if (self.gmFrame != None):
-			self.gmFrame.setMap(self.map)
-			
+	def __applySettings(self, doc):
+		if (doc.settings is not None):
+			self.readSettings(doc.settings)
+		elif (not doc.editable):
+			# A handout the GM has not looked at yet: show the players all of it.
+			wx.CallAfter(self.fitPlayerView, False)
+
+	def fitPlayerView(self, user=True):
+		if (self.doc is None):
+			return
+		w, h = self.doc.map.size
+		self.playerFrame.panel.showMapRect((0, 0, w, h), user)
+
 	def readSettings(self, settings):
 		for child in settings:
 			if ((child.tag == "player") and (self.playerFrame != None)):
 				self.playerFrame.panel.readSettings(child)
 			elif ((child.tag == "gm") and (self.gmFrame != None)):
 				self.gmFrame.panel.readSettings(child)
-	
+
 	def writeSettings(self, settings):
 		playerSettings = etree.Element("player")
 		if (self.playerFrame != None):
 			self.playerFrame.panel.writeSettings(playerSettings)
 		settings.append(playerSettings)
-		
+
 		gmSettings = etree.Element("gm")
 		if (self.gmFrame != None):
 			self.gmFrame.panel.writeSettings(gmSettings)
 		settings.append(gmSettings)
+
+	# --- internals ------------------------------------------------------------
+
+	def __confirmRestore(self, leftovers):
+		shown = "\n".join("    " + rel for rel in leftovers[:10])
+		if (len(leftovers) > 10):
+			shown += "\n    ...and %d more" % (len(leftovers) - 10)
+		dlg = wx.MessageDialog(self.gmFrame,
+							   "fogmap did not shut down cleanly.  Unsaved changes "
+							   "were found for:\n\n%s\n\nRestore them?  Choosing No "
+							   "throws them away and opens the saved versions."
+							   % shown,
+							   "Restore Unsaved Changes",
+							   wx.YES_NO | wx.ICON_QUESTION)
+		result = dlg.ShowModal()
+		dlg.Destroy()
+		return result == wx.ID_YES
+
+	def __error(self, message, title):
+		dlg = wx.MessageDialog(self.gmFrame, message, title, wx.OK | wx.ICON_ERROR)
+		dlg.ShowModal()
+		dlg.Destroy()
 
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(prog='fogmap', description='Fog of war map tool.')
 	parser.add_argument('--version', action='version', version='%(prog)s 1.0')
 	parser.add_argument('-f', '--file', dest='file', default=None, metavar='FILE', help='Map file to open')
+	parser.add_argument('-p', '--project', dest='project', default=None, metavar='DIR', help='Project folder to open')
 	options = parser.parse_args()
 
-	app = ImageTestApp(options.file)
+	app = ImageTestApp(options.file, options.project)
 	app.MainLoop()

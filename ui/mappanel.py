@@ -112,7 +112,8 @@ class PlayerMapPanel(MapPanel):
 		self.panAnchor = None
 		self.mirror = False
 		self.playerPanel = None
-		
+		self.userViewListener = None
+
 		super(PlayerMapPanel, self).__init__(parent)
 	
 		self.Bind(wx.EVT_RIGHT_DOWN, self.onRightDown)
@@ -122,6 +123,19 @@ class PlayerMapPanel(MapPanel):
 		self.Bind(wx.EVT_KEY_DOWN, self.onKeyDown)
 		self.Bind(wx.EVT_KEY_UP, self.onKeyUp)
 
+	def setUserViewListener(self, listener):
+		"""Called when the GM moves this view, so the document can be flagged as
+		   having changes worth keeping.
+
+		   Deliberately separate from setViewListener: that one also fires when
+		   the window is resized and while a document's saved position is being
+		   restored, neither of which is the GM changing anything."""
+		self.userViewListener = listener
+
+	def _userViewChanged(self):
+		if (self.userViewListener != None):
+			self.userViewListener()
+
 	def setScale(self, scale, refresh=True):
 		self.scale = min(max(scale, PlayerMapPanel.MIN_SCALE), PlayerMapPanel.MAX_SCALE)
 		self._fireViewChanged()
@@ -130,6 +144,7 @@ class PlayerMapPanel(MapPanel):
 
 	def modifyScale(self, increment, refresh=True):
 		self.setScale(self.scale + (self.scale * increment), refresh)
+		self._userViewChanged()
 
 	def setOffset(self, x, y, refresh=True):
 		self.offset = (x, y)
@@ -140,8 +155,13 @@ class PlayerMapPanel(MapPanel):
 	def modifyOffset(self, dx, dy, refresh=True):
 		self.setOffset(self.offset[0] + dx, self.offset[1] + dy, refresh)
 
+	def recentre(self):
+		self.setOffset(0, 0)
+		self._userViewChanged()
+
 	def toggleMirror(self):
 		self.mirror = not self.mirror
+		self._userViewChanged()
 		self.Refresh()
 
 	def getViewportAspect(self):
@@ -166,8 +186,11 @@ class PlayerMapPanel(MapPanel):
 		centreY = bsz.height / 2.0 - self.offset[1]
 		return (centreX - w / 2.0, centreY - h / 2.0, w, h)
 
-	def showMapRect(self, rect):
-		"""Zoom and pan so that the given map rectangle fills the window."""
+	def showMapRect(self, rect, user=True):
+		"""Zoom and pan so that the given map rectangle fills the window.
+
+		   user is False when the app frames a freshly opened image, which is
+		   not a change the GM made and so is nothing to save."""
 		x, y, w, h = rect
 		cw, ch = self.GetClientSize()
 		if ((self.mapImg is None) or (w <= 0) or (h <= 0) or (cw <= 0) or (ch <= 0)):
@@ -177,6 +200,8 @@ class PlayerMapPanel(MapPanel):
 					   bsz.height / 2.0 - (y + h / 2.0))
 		# min() keeps the whole rect visible if its aspect does not match.
 		self.setScale(min(cw / float(w), ch / float(h)))
+		if (user):
+			self._userViewChanged()
 
 	def _scaleXY(self, scale=None):
 		"""Horizontal scale is negated while mirrored, so screen deltas still map
@@ -224,6 +249,7 @@ class PlayerMapPanel(MapPanel):
 			self.modifyScale(increment)
 			return
 		self._zoomAbout(increment, self._screenToMap(screenPt), screenPt)
+		self._userViewChanged()
 
 	def zoomAtMapPoint(self, increment, mapPt):
 		"""Zoom, keeping one map pixel pinned wherever it currently appears.
@@ -232,6 +258,7 @@ class PlayerMapPanel(MapPanel):
 			self.modifyScale(increment)
 			return
 		self._zoomAbout(increment, mapPt, self._mapToScreen(mapPt))
+		self._userViewChanged()
 
 	def beginPan(self, screenPt):
 		self.panAnchor = screenPt
@@ -248,10 +275,12 @@ class PlayerMapPanel(MapPanel):
 		self.modifyOffset((screenPt[0] - self.panAnchor[0]) / sx,
 						  (screenPt[1] - self.panAnchor[1]) / sy)
 		self.panAnchor = screenPt
+		self._userViewChanged()
 
 	def panByMapDelta(self, dx, dy):
 		"""Pan by a distance already expressed in map pixels."""
 		self.modifyOffset(dx, dy)
+		self._userViewChanged()
 
 	def onWheel(self, evt):
 		increment = 0.1 if (evt.GetWheelRotation() > 0) else -0.1
@@ -261,7 +290,7 @@ class PlayerMapPanel(MapPanel):
 		self.beginPan(evt.GetPosition())
 
 	def onRightDClick(self, evt):
-		self.setOffset(0, 0)
+		self.recentre()
 
 	def onMouseMove(self, evt):
 		if (evt.RightIsDown()):
@@ -293,6 +322,7 @@ class PlayerMapPanel(MapPanel):
 			self.modifyOffset(0, moveIncrement[1])
 		elif (key == wx.WXK_DOWN):
 			self.modifyOffset(0, -moveIncrement[1])
+		self._userViewChanged()
 
 	def onKeyUp(self, evt):
 		if (evt.ControlDown() and (evt.GetUnicodeKey() == 70)):
@@ -411,7 +441,9 @@ class GMMapPanel(MapPanel):
 		   out the brush controls that the overlay disables."""
 		self.viewportListener = listener
 
-	def setShowViewport(self, show):
+	def setShowViewport(self, show, user=True):
+		"""user is False when a document's saved state is being restored, which
+		   is nothing to flag as a change."""
 		self.showViewport = show
 		self._endViewportDrag()
 		self.viewportHover = None
@@ -419,11 +451,17 @@ class GMMapPanel(MapPanel):
 			self._setCursorFor(None)
 		if (self.viewportListener != None):
 			self.viewportListener()
+		if (user and (self.playerPanel != None)):
+			self.playerPanel._userViewChanged()
 		self.Refresh()
 
 	def viewportActive(self):
 		"""While the overlay is up the mouse drives it, and the brush is off."""
 		return self.showViewport and (self.playerPanel is not None)
+
+	def canPaint(self):
+		"""A plain image has no fog to paint, and nowhere to save it to."""
+		return (self.map != None) and self.map.editable
 
 	VIEWPORT_TOLERANCE = 6
 	VIEWPORT_HANDLE_SIZE = 9
@@ -514,7 +552,7 @@ class GMMapPanel(MapPanel):
 		if (self._forwardsToPlayer(evt)):
 			self.forwardAnchor = evt.GetPosition()
 			return
-		if (self.brush != None):
+		if ((self.brush != None) and self.canPaint()):
 			pos = evt.GetPosition()
 			self.map.applyBrush(self.brush, pos[0], pos[1])
 			
@@ -524,7 +562,7 @@ class GMMapPanel(MapPanel):
 		if (self._forwardsToPlayer(evt)):
 			self.forwardAnchor = evt.GetPosition()
 			return
-		if (self.brush != None):
+		if ((self.brush != None) and self.canPaint()):
 			pos = evt.GetPosition()
 			self.map.unapplyBrush(self.brush, pos[0], pos[1])
 
@@ -536,7 +574,7 @@ class GMMapPanel(MapPanel):
 
 	def onRightDClick(self, evt):
 		if (self._forwardsToPlayer(evt)):
-			self.playerPanel.setOffset(0, 0)
+			self.playerPanel.recentre()
 		else:
 			evt.Skip()
 
@@ -599,7 +637,7 @@ class GMMapPanel(MapPanel):
 		if (self.grid != None):
 			ptBrush = self.grid.getGridCoords(ptBrush)
 						
-		if ((self.brush != None) and (ptBrush != self.lastBrushPt)):
+		if ((self.brush != None) and self.canPaint() and (ptBrush != self.lastBrushPt)):
 			if (evt.LeftIsDown()):
 				self.map.applyBrush(self.brush, self.mouse[0], self.mouse[1])
 			elif (evt.RightIsDown()):
@@ -671,7 +709,7 @@ class GMMapPanel(MapPanel):
 	def readSettings(self, settings):
 		for child in settings:
 			if (child.tag == "viewport"):
-				self.setShowViewport(child.get("visible") == "true")
+				self.setShowViewport(child.get("visible") == "true", user=False)
 	
 	def writeSettings(self, settings):
 		settings.append(etree.Element("viewport",
