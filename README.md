@@ -34,6 +34,10 @@ python app.py -f test.map    # open an existing .map file
 | Left click / drag | Reveal with the current brush |
 | Right click / drag | Re-hide with the current brush |
 | Shift / Ctrl while dragging | Lock the brush to one axis |
+| **Hold Alt** | Drive the Player View with the mouse instead of the brush |
+| Alt + drag (either button) | Pan the Player View |
+| Alt + wheel | Zoom the Player View about the map point under the cursor |
+| Alt + right double-click | Recentre the Player View |
 | Toolbar | Brush type (None / Round / Square / Grid) and size |
 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+A` | New / Open / Save / Save As |
 | `Ctrl+W` | Swap the underlying image, keeping the revealed mask |
@@ -46,15 +50,20 @@ whole hexes. It is only selectable while a grid is active.
 
 | Action | Effect |
 | --- | --- |
-| Mouse wheel, `PageUp` / `PageDown` | Zoom |
-| Right drag | Pan |
+| Mouse wheel | Zoom about the point under the cursor |
+| `PageUp` / `PageDown` | Zoom about the centre of the view |
+| Right drag | Pan; the map follows the cursor |
 | Right double-click | Recentre |
 | Arrow keys | Pan one grid cell (hold `Shift` for one pixel) |
 | `Ctrl+F` | Mirror horizontally, for projecting onto a table from below |
 | Double-click | Toggle full screen |
 
 The GM window forwards key presses to the Player View, so the GM can zoom and pan
-what the players see without leaving their own window.
+what the players see without leaving their own window. Holding **Alt** forwards the
+mouse as well: the brush is suspended, the cursor turns into a hand, and dragging or
+scrolling over the GM map pans and zooms what the players are looking at. Because the
+GM map is drawn 1:1, Alt + wheel zooms the Player View around whichever map feature
+the GM is pointing at.
 
 ## File format
 
