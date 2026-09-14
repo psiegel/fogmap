@@ -1,4 +1,5 @@
 import wx
+import numpy as np
 from lxml import etree
 
 import gfx
@@ -16,6 +17,12 @@ class MapPanel(wx.Panel):
 		self.map = None
 		self.grid = None
 		self.mapImg = None
+		# The map image converted for drawing.  Held across paints because the
+		# conversion costs time proportional to the whole map - a sixth of a
+		# second on a big one - and it used to be paid on every single repaint,
+		# including the ones that only move the brush cursor.  A brush dab
+		# patches the box it touched rather than throwing this away.
+		self.mapBmp = None
 		self.playerPanel = None
 		self.viewListener = None
 		self._buffer = wx.Bitmap.FromRGBA(1, 1)
@@ -28,6 +35,7 @@ class MapPanel(wx.Panel):
 			self.map.removeUpdateListener(self._updateMap)
 		self.map = map
 		self.map.addUpdateListener(self._updateMap)
+		self.mapBmp = None
 		self._updateMap()
 		
 	def setPlayerPanel(self, panel):
@@ -45,6 +53,7 @@ class MapPanel(wx.Panel):
 
 	def reset(self):
 		self.mapImg = None
+		self.mapBmp = None
 
 	def onSize(self, evt):
 		w, h = self.GetClientSize()
@@ -62,14 +71,26 @@ class MapPanel(wx.Panel):
 						25, 25)
 			return	
 
-		gc.PushState()									
-		self._draw(gc)
+		# Draw no more of the map than was invalidated.  The buffer is kept
+		# between paints, so whatever falls outside the clip is still there
+		# from last time - which is what makes a brush dab cost the size of the
+		# brush instead of the size of the map.
+		box = self.GetUpdateRegion().GetBox()
+		if (box.IsEmpty()):
+			return
+
+		gc.PushState()
+		gc.Clip(box.x, box.y, box.width, box.height)
+		self._draw(gc, (box.x, box.y, box.x + box.width, box.y + box.height))
 		gc.PopState()
 		
-	def _draw(self, gc):
+	def _draw(self, gc, box):
+		"""box is the part of the panel being repainted, in its own
+		   coordinates.  Passed down so the grid can skip what is off-screen
+		   rather than relying on the clip to throw it away afterwards."""
 		self._drawMap(gc)
 		if ((self.map != None) and (self.map.grid.visible)):
-			self._drawGrid(gc)		
+			self._drawGrid(gc, box)		
 
 	def onClose(self, evt):
 		if (self.map != None):
@@ -79,14 +100,96 @@ class MapPanel(wx.Panel):
 	def _drawMap(self, gc):
 		raise Exception("_drawMap called on base MapPanel class.")
 
-	def _drawGrid(self, gc):
+	def _drawGrid(self, gc, box):
 		raise Exception("_drawGrid called on base MapPanel class.")
 
-	def _updateMap(self):
-		if (self.mapImg == None):
+	def _alpha(self, mask, box=None):
+		"""How this panel turns the fog mask into alpha.  The two windows show
+		   the same mask differently, and that is the only difference between
+		   them here."""
+		raise Exception("_alpha called on base MapPanel class.")
+
+	def _mapRectToClient(self, box):
+		"""A box in map pixels as a rectangle in this panel's own coordinates."""
+		raise Exception("_mapRectToClient called on base MapPanel class.")
+
+	def _mapBitmap(self):
+		"""The drawable map, converted on first use after a change and then
+		   kept.  Callers must not hold onto it across a _updateMap."""
+		if ((self.mapBmp is None) and (self.mapImg is not None)):
+			self.mapBmp = self.mapImg.ConvertToBitmap()
+		return self.mapBmp
+
+	def _clipToMap(self, box):
+		"""A brush at the edge of the map reaches past it; nothing downstream
+		   copes with that, so trim first.  None if nothing is left."""
+		w, h = self.map.size
+		x0 = max(int(box[0]), 0)
+		y0 = max(int(box[1]), 0)
+		x1 = min(int(box[2]), w)
+		y1 = min(int(box[3]), h)
+		if ((x1 <= x0) or (y1 <= y0)):
+			return None
+		return (x0, y0, x1, y1)
+
+	def _updateMap(self, rect=None):
+		"""rect is the box a brush dab touched.  None means rebuild the lot -
+		   a new map, a swapped image, a grid change."""
+		fresh = (self.mapImg is None)
+		if (fresh):
 			self.mapImg = gfx.pilToWx(self.map.mapImg)
+			self.mapBmp = None
+			self._onImageCreated()
 		self._updateGrid()
-		
+		if (self.mapImg is None):
+			return
+
+		box = self._clipToMap(rect) if (rect is not None) else None
+		if (fresh or (box is None)):
+			self.mapImg.SetAlpha(self._alpha(self.map.mask).tobytes())
+			self.mapBmp = None
+			self.Refresh(False)
+			return
+
+		self._patchMap(box)
+		self.RefreshRect(self._mapRectToClient(box))
+
+	def _onImageCreated(self):
+		"""Hook for whatever a panel has to do once, when the image appears."""
+		pass
+
+	def _patchMap(self, box):
+		"""Bring one box of the map up to date with the mask, and nothing else.
+
+		   Both the image and the bitmap built from it are kept in step: the
+		   image because a later wholesale rebuild reads from it, the bitmap
+		   because that is what actually gets drawn.  The patch is always built
+		   from the original image rather than read back off the bitmap, so
+		   repeated dabs over the same ground cannot accumulate error."""
+		x0, y0, x1, y1 = box
+		w = x1 - x0
+		h = y1 - y0
+		alpha = self._alpha(self.map.mask, box)
+
+		buf = np.frombuffer(self.mapImg.GetAlphaBuffer(), np.uint8)
+		buf = buf.reshape(self.mapImg.GetHeight(), self.mapImg.GetWidth())
+		buf[y0:y1, x0:x1] = alpha
+
+		if (self.mapBmp is None):
+			# Nothing built yet; the next paint reads the image and gets this.
+			return
+		rgba = np.empty((h, w, 4), np.uint8)
+		rgba[:, :, :3] = np.asarray(self.map.mapImg.crop(box))[:, :, :3]
+		rgba[:, :, 3] = alpha
+		dc = wx.MemoryDC(self.mapBmp)
+		gc = wx.GraphicsContext.Create(dc)
+		# SOURCE rather than the default OVER: this replaces those pixels
+		# outright, alpha included, instead of blending onto what is there.
+		gc.SetCompositionMode(wx.COMPOSITION_SOURCE)
+		gc.DrawBitmap(wx.Bitmap.FromBufferRGBA(w, h, rgba), x0, y0, w, h)
+		del gc
+		dc.SelectObject(wx.NullBitmap)
+
 	def _updateGrid(self):
 		self.grid = None
 		if (self.map.grid.type == data.Grid.GRID_SQUARE):
@@ -353,7 +456,7 @@ class PlayerMapPanel(MapPanel):
 			color = wx.Colour(255, 255, 255)
 			gc.SetBrush(wx.Brush(color))
 			bsz = self.mapImg.GetSize()
-			gc.DrawBitmap(self.mapImg.ConvertToBitmap(),
+			gc.DrawBitmap(self._mapBitmap(),
 						  0, 
 						  0,				  
 						  bsz.width, 
@@ -367,19 +470,35 @@ class PlayerMapPanel(MapPanel):
 		#gc.DrawText("Zoom: %f" % self.scale, 10, 10, textBgBrush)
 		#gc.DrawText("Offset: (%d, %d)" % self.offset, 10, 20, textBgBrush)
 
-	def _drawGrid(self, gc):
+	def _drawGrid(self, gc, box):
 		if (self.grid != None):
 			gc.PushState()
 			self._offsetAndScale(gc)
-			self.grid.drawGrid(gc, self.map.size[0], self.map.size[1])
+			# This panel zooms and pans, so the box has to be carried back into
+			# map coordinates before the grid can use it.  Mirroring swaps left
+			# and right, which min/max sorts out.
+			a = self._screenToMap((box[0], box[1]))
+			b = self._screenToMap((box[2], box[3]))
+			clip = (min(a[0], b[0]), min(a[1], b[1]),
+					max(a[0], b[0]), max(a[1], b[1]))
+			self.grid.drawGrid(gc, self.map.size[0], self.map.size[1], clip)
 			gc.PopState()
 
-	def _updateMap(self):
-		super(PlayerMapPanel, self)._updateMap()
-		if (self.mapImg != None):
-			self.mapImg.SetAlpha(gfx.playerAlpha(self.map.mask))
-			self.Refresh(False)
-			
+	def _alpha(self, mask, box=None):
+		return gfx.playerAlpha(mask, box)
+
+	def _mapRectToClient(self, box):
+		"""This panel scales and pans, so a box of map pixels lands wherever
+		   the current view puts it.  Rounded outwards, plus a pixel of slack
+		   for the edge the scaling lands between."""
+		a = self._mapToScreen((box[0], box[1]))
+		b = self._mapToScreen((box[2], box[3]))
+		left = int(min(a[0], b[0])) - 1
+		top = int(min(a[1], b[1])) - 1
+		right = int(max(a[0], b[0])) + 2
+		bottom = int(max(a[1], b[1])) + 2
+		return wx.Rect(left, top, right - left, bottom - top)
+
 	def readSettings(self, settings):
 		for child in settings:
 			if (child.tag == "scale"):
@@ -402,7 +521,12 @@ class GMMapPanel(MapPanel):
 	def __init__(self, parent):
 		self.brush = None
 		self.mouse = (0, 0)
-		self.lastBrushPt = (0, 0)
+		self.lastBrushPt = None
+		# Where the brush cursor was last actually painted, which is not the
+		# same as where the mouse was a moment ago: several moves can go by
+		# between repaints.  Cleaning up after the cursor means invalidating
+		# where it really is on screen.
+		self.brushDrawnAt = None
 		self.axisLock = (False, False)
 		self.forwarding = False
 		self.forwardAnchor = None
@@ -427,6 +551,9 @@ class GMMapPanel(MapPanel):
 		
 	def setBrush(self, brush):
 		self.brush = brush
+		# Anchors are not comparable between brushes - a hex brush counts in
+		# hexes, a freehand one in pixels - so the last one means nothing now.
+		self.lastBrushPt = None
 
 	def setPlayerPanel(self, panel):
 		super(GMMapPanel, self).setPlayerPanel(panel)
@@ -555,6 +682,7 @@ class GMMapPanel(MapPanel):
 		if ((self.brush != None) and self.canPaint()):
 			pos = evt.GetPosition()
 			self.map.applyBrush(self.brush, pos[0], pos[1])
+			self.lastBrushPt = self.brush.anchor(pos[0], pos[1])
 			
 	def onRightDown(self, evt):
 		if (self._grabViewport(evt.GetPosition())):
@@ -565,6 +693,7 @@ class GMMapPanel(MapPanel):
 		if ((self.brush != None) and self.canPaint()):
 			pos = evt.GetPosition()
 			self.map.unapplyBrush(self.brush, pos[0], pos[1])
+			self.lastBrushPt = self.brush.anchor(pos[0], pos[1])
 
 	def onMouseUp(self, evt):
 		self.forwardAnchor = None
@@ -633,21 +762,54 @@ class GMMapPanel(MapPanel):
 		elif (self.axisLock[1]):
 			self.mouse = (mousePos[0], self.mouse[1])
 		
-		ptBrush = self.mouse
-		if (self.grid != None):
-			ptBrush = self.grid.getGridCoords(ptBrush)
-						
-		if ((self.brush != None) and self.canPaint() and (ptBrush != self.lastBrushPt)):
-			if (evt.LeftIsDown()):
-				self.map.applyBrush(self.brush, self.mouse[0], self.mouse[1])
-			elif (evt.RightIsDown()):
-				self.map.unapplyBrush(self.brush, self.mouse[0], self.mouse[1])
-			else:
-				self.Refresh()
-			self.lastBrushPt = ptBrush
+		# Where the brush would next leave its mark.  This comes off the brush
+		# rather than off the displayed grid: a grid being switched on says
+		# nothing about whether the brush in hand snaps to it, and taking it
+		# from the grid meant a freehand brush on a gridded map only painted
+		# where it crossed a cell boundary.
+		if ((self.brush != None) and self.canPaint()):
+			ptBrush = self.brush.anchor(self.mouse[0], self.mouse[1])
+			if (ptBrush != self.lastBrushPt):
+				if (evt.LeftIsDown()):
+					self.map.applyBrush(self.brush, self.mouse[0], self.mouse[1])
+				elif (evt.RightIsDown()):
+					self.map.unapplyBrush(self.brush, self.mouse[0], self.mouse[1])
+				self.lastBrushPt = ptBrush
+
+		# Outside that guard on purpose.  The guard is about where the brush
+		# next paints, which a grid snaps to whole cells; the cursor follows
+		# the mouse itself and has to keep up with it whether or not a dab was
+		# laid down.  Painting invalidates the dab's own box as well, and wx
+		# folds the two into one repaint.
+		self._refreshBrushCursor()
+
+	def _brushRect(self, pt):
+		x0, y0, x1, y1 = self.brush.bounds(pt[0], pt[1])
+		return wx.Rect(x0, y0, x1 - x0, y1 - y0)
+
+	def _refreshBrushCursor(self):
+		"""Invalidate just the brush cursor: where it is on screen now, and
+		   where it is about to be.
+
+		   This used to be a whole-panel Refresh, which on a large map meant
+		   rebuilding and blitting every pixel of it to move a small green
+		   circle - so merely hovering over the map was as expensive as
+		   painting on it."""
+		if (self.brush is None):
+			return
+		rect = self._brushRect(self.mouse)
+		if (self.brushDrawnAt is not None):
+			if (self.brush.anchor(*self.brushDrawnAt) ==
+				self.brush.anchor(*self.mouse)):
+				# Same anchor, so what is on screen is already the right shape
+				# in the right place.  This is what keeps a brush that snaps to
+				# the grid from repainting its way across a cell.
+				return
+			rect = rect.Union(self._brushRect(self.brushDrawnAt))
+		self.RefreshRect(rect.Inflate(2, 2))
 			
-	def _draw(self, gc):
-		super(GMMapPanel, self)._draw(gc)
+	def _draw(self, gc, box):
+		super(GMMapPanel, self)._draw(gc, box)
 		self._drawViewport(gc)
 		self._drawBrush(gc)
 
@@ -671,32 +833,41 @@ class GMMapPanel(MapPanel):
 			bsz = self.mapImg.GetSize()
 			color = wx.Colour(255, 255, 255)
 			gc.SetBrush(wx.Brush(color))
-			gc.DrawBitmap(self.mapImg.ConvertToBitmap(),
+			gc.DrawBitmap(self._mapBitmap(),
 						  0, 
 						  0,				  
 						  bsz.width, 
 						  bsz.height)		
 
-	def _drawGrid(self, gc):
+	def _drawGrid(self, gc, box):
 		if (self.grid != None):
-			# Base grid
+			# Base grid.  This panel draws 1:1, so the box is already in map
+			# coordinates.
 			bsz = self.mapImg.GetSize()
-			self.grid.drawGrid(gc, bsz.width, bsz.height)	
+			self.grid.drawGrid(gc, bsz.width, bsz.height, box)	
 			
 	def _drawBrush(self, gc):
 		# Cursor
+		self.brushDrawnAt = None
 		if ((self.brush != None) and (not self.forwarding) and (not self.showViewport)):
 			color = wx.Colour(0, 255, 0, 128)
 			gc.SetBrush(wx.Brush(color))
 			self.brush.drawToGc(gc, self.mouse[0], self.mouse[1])
+			self.brushDrawnAt = self.mouse
 			
-	def _updateMap(self):
-		super(GMMapPanel, self)._updateMap()
-		if (self.mapImg != None):
-			self.SetMinSize(self.mapImg.GetSize())
-			self.mapImg.SetAlpha(gfx.gmAlpha(self.map.mask))
-			self.Refresh()
-				
+	def _alpha(self, mask, box=None):
+		return gfx.gmAlpha(mask, box)
+
+	def _mapRectToClient(self, box):
+		# This panel draws the map 1:1 and is itself scrolled, so its own
+		# coordinates are map pixels.
+		return wx.Rect(box[0], box[1], box[2] - box[0], box[3] - box[1])
+
+	def _onImageCreated(self):
+		# Only when the image appears or changes size: doing this on every dab
+		# put a layout pass in the middle of every mouse move.
+		self.SetMinSize(self.mapImg.GetSize())
+
 	def _updateGrid(self):
 		super(GMMapPanel, self)._updateGrid()
 		if (isinstance(self.brush, data.GridBrush)):

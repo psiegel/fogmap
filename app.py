@@ -289,8 +289,11 @@ class ImageTestApp(wx.App):
 		self.doc.viewDirty = True
 		self.noteDirty()
 
-	def noteDirty(self):
-		"""Mark the document modified in the tree and title bar, once."""
+	def noteDirty(self, rect=None):
+		"""Mark the document modified in the tree and title bar, once.
+
+		   rect is which part of the map changed, which matters to the panels
+		   but not here."""
 		if (self.dirtyShown or (self.doc is None) or (not self.doc.isDirty())):
 			return
 		self.dirtyShown = True

@@ -216,15 +216,15 @@ class Map(object):
 
 	def applyBrush(self, brush, x, y):
 		brush.drawToImage(self.mask, x, y, gfx.MASK_REVEALED)
-		self.__contentChanged()
+		self.__contentChanged(brush.bounds(x, y))
 
 	def unapplyBrush(self, brush, x, y):
 		brush.drawToImage(self.mask, x, y, gfx.MASK_HIDDEN)
-		self.__contentChanged()
+		self.__contentChanged(brush.bounds(x, y))
 
-	def __contentChanged(self):
+	def __contentChanged(self, rect=None):
 		self.contentDirty = True
-		self.__fireUpdateListeners()
+		self.__fireUpdateListeners(rect)
 
 	def addUpdateListener(self, listener):
 		self.updateListeners.append(listener)
@@ -232,8 +232,11 @@ class Map(object):
 	def removeUpdateListener(self, listener):
 		self.updateListeners.remove(listener)
 
-	def __fireUpdateListeners(self):
+	def __fireUpdateListeners(self, rect=None):
+		"""rect is the box a brush dab touched, or None when the change was
+		   wholesale - a new grid, a swapped image - and everything has to be
+		   rebuilt."""
 		for listener in self.updateListeners:
-			listener()
+			listener(rect)
 
 	size = property(lambda x: x.mapImg.size)

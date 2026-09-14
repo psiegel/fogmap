@@ -1,4 +1,6 @@
 import wx
+import math
+
 from PIL import ImageDraw
 
 def getTriangleArea(triangle):
@@ -183,30 +185,43 @@ def createHexPath(gc, size):
 
 	return path
 	
-def drawHexGridToGc(gc, w, h, hexSize):
+def drawHexGridToGc(gc, w, h, hexSize, clip=None):
+	"""clip is the box of map being repainted, as (x0, y0, x1, y1), or None for
+	   the whole map.  Only the hexes that reach into it are stroked; drawing
+	   the lot is thousands of strokes on a large map, and it happens on every
+	   repaint."""
+	wInc = (hexSize // 4) * 3
+	if ((wInc <= 0) or (hexSize <= 0)):
+		return
+
 	gc.SetPen(wx.Pen("black", 1))
 	gc.SetBrush(wx.Brush("black"))
-
 	hexPath = createHexPath(gc, hexSize)
 
-	x = 0
-	y = 0
-	wInc = (hexSize // 4) * 3
-	
-	gc.PushState() 
-	while (y < h):
-		gc.PushState() 
-		hInc = hexSize // 2
-		while (x < w):
+	# Columns step across by wInc and every other one drops half a hex, so a
+	# hex sits at (i*wInc, j*hexSize + half on odd columns) and covers hexSize
+	# each way from there.  The bounds below are the same set the old
+	# while-loops walked, narrowed to what the clip can actually show.
+	cols = int(math.ceil(w / float(wInc)))
+	rows = int(math.ceil(h / float(hexSize)))
+	if (clip is None):
+		iFrom, iTo, jFrom, jTo = 0, cols, 0, rows
+	else:
+		x0, y0, x1, y1 = clip
+		iFrom = max(0, int(math.floor((x0 - hexSize) / float(wInc))))
+		iTo = min(cols, int(math.ceil(x1 / float(wInc))) + 1)
+		# One row of slack for the half-hex drop on odd columns.
+		jFrom = max(0, int(math.floor((y0 - hexSize) / float(hexSize))) - 1)
+		jTo = min(rows, int(math.ceil(y1 / float(hexSize))) + 1)
+
+	for i in range(iFrom, iTo):
+		x = i * wInc
+		hInc = (hexSize // 2) if (i % 2) else 0
+		for j in range(jFrom, jTo):
+			gc.PushState()
+			gc.Translate(x, j * hexSize + hInc)
 			gc.StrokePath(hexPath)
-			gc.Translate(wInc, hInc)
-			x += wInc
-			hInc = -hInc
-		gc.PopState()
-		gc.Translate(0, hexSize)
-		y += hexSize
-		x = 0
-	gc.PopState() 
+			gc.PopState()
 	
 def fillHexCircleToGc(gc, center, radius, hexSize):
 	hexPath = createHexPath(gc, hexSize)

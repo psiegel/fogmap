@@ -46,17 +46,27 @@ def createNewImg(w, h, color, alpha=False):
 def createMask(w, h, revealed):
 	return Image.new(MASK_MODE, (w, h), MASK_REVEALED if revealed else MASK_HIDDEN)
 
-def maskBytes(mask):
-	"""The mask as one byte per pixel, 0 or 255, without copying it out of PIL
-	   first.  A "1" image is stored unpacked, so this is a plain view."""
+def maskBytes(mask, box=None):
+	"""The mask as a 2-D array of bytes, 0 or 255.
+
+	   box limits it to (x0, y0, x1, y1), far edge exclusive - which is how a
+	   brush dab avoids touching anything but the handful of pixels it
+	   actually changed."""
+	# Cropping first, rather than slicing after, is the whole point: PIL hands
+	# numpy a copy of the image rather than a view of it, so asking for the
+	# whole mask and taking a corner of it would copy every pixel of the map
+	# for the sake of a brush-sized box.  It also means the result can never
+	# be a stale view of a mask that has since been painted on.
+	if (box is not None):
+		mask = mask.crop(box)
 	return np.asarray(mask).view(np.uint8)
 
-def playerAlpha(mask):
+def playerAlpha(mask, box=None):
 	"""Player alpha: hidden ground is fully transparent, so the black behind
 	   the map comes through."""
-	return maskBytes(mask).tobytes()
+	return maskBytes(mask, box)
 
-def gmAlpha(mask):
+def gmAlpha(mask, box=None):
 	"""GM alpha: hidden ground is dimmed rather than removed, so the GM can
 	   still see what they are about to reveal.  255 -> 255, 0 -> 128."""
-	return ((maskBytes(mask) >> 1) | np.uint8(128)).tobytes()
+	return (maskBytes(mask, box) >> 1) | np.uint8(128)
