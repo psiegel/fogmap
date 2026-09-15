@@ -7,10 +7,15 @@ from .. import data
 from .. import resources
 
 from . import mappanel
+from . import modes
 from . import projecttree
 from . import tools
 
 class MapPanelFrame(wx.Frame):	
+	# A class default, so the update-UI handlers a frame installs can safely
+	# run before its panel has been built.
+	panel = None
+
 	def __init__(self, *args, **kwargs):	
 		super(MapPanelFrame, self).__init__(*args, **kwargs)
 		icons = resources.appIcons()
@@ -57,14 +62,21 @@ class GMFrame(MapPanelFrame):
 		super(GMFrame, self).__init__(*args, **kwargs)
 
 		self.__readConfig()
+
+		# Built before anything that shows them: the menu lists them, and the
+		# toolbar is laid out around the controls each one brings with it.
+		# They reach the panel through the frame, so it can come later.
+		self.modes = [cls(self) for cls in modes.MODES]
+		self.altMode = modes.PlayerDriveMode(self)
+
 		self.__createMenu()
 		self.__rebuildRecentFilesMenu()
 		self.__rebuildRecentProjectsMenu()
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
 
-		self.brushBar = self.__createBrushToolbar()
-		self.brushBar.Realize()
+		self.toolBar = self.__createToolbar()
+		self.toolBar.Realize()
 
 		# The tree lives in the left half of a splitter that is left unsplit
 		# until a project is opened, so opening a lone file looks as it always did.
@@ -81,11 +93,13 @@ class GMFrame(MapPanelFrame):
 		scrollSizer.Add(self.panel, 1, wx.EXPAND)
 		self.scrollPanel.SetSizer(scrollSizer)
 		self.scrollPanel.SetupScrolling()
-		self.panel.setViewportListener(self.updateControlState)
+		self.panel.setModes(self.modes, self.altMode)
+		self.panel.setModeListener(self.updateControlState)
 		# The panel resizes itself as it zooms, and puts the scroll position
 		# back afterwards, so it needs to know what it is being scrolled by.
 		self.panel.setScroller(self.scrollPanel)
 		self.panel.setZoomListener(self.updateZoomControl)
+		self.panel.setMode(self.modes[0], user=False)
 
 		self.splitter.Initialize(self.scrollPanel)
 		sizer.Add(self.splitter, 1, wx.EXPAND)
@@ -135,9 +149,6 @@ class GMFrame(MapPanelFrame):
 
 	def onDocumentChanged(self):
 		"""Bring the window into line with whatever document is now open."""
-		# The panel drops its brush when the map changes, so the toolbar has to
-		# agree or the GM is left with a brush type selected and no brush.
-		self.brushType.SetStringSelection("None")
 		self.updateControlState()
 		doc = wx.GetApp().doc
 		if ((doc != None) and (doc.path != None)):
@@ -206,14 +217,23 @@ class GMFrame(MapPanelFrame):
 
 		# View Menu.  Well clear of the 301+ range the recent files menu uses.
 		viewMenu = wx.Menu()
-		viewMenu.Append(1001, "Show Player Viewport\tCTRL+B",
-						"Outline the area the players can currently see.", wx.ITEM_CHECK)
-		self.Bind(wx.EVT_MENU, self.onViewportToggle, id=1001)
-		self.Bind(wx.EVT_UPDATE_UI, self.onViewportUpdate, id=1001)
+		# What the mouse is for comes first: it is the biggest thing about this
+		# window, and the toolbar switcher sits at the far left for the same
+		# reason.  One item per mode, so a new mode needs nothing here.
+		for index, mode in enumerate(self.modes):
+			menuId = GMFrame.FIRST_MODE_ID + index
+			label = mode.label + " Mode"
+			if (mode.hotkey != None):
+				label += "\t" + mode.hotkey
+			viewMenu.Append(menuId, label, mode.help, wx.ITEM_RADIO)
+			self.Bind(wx.EVT_MENU,
+					  lambda evt, mode=mode: self.setMode(mode), id=menuId)
+			self.Bind(wx.EVT_UPDATE_UI, self.onModeMenuUpdate, id=menuId)
+		viewMenu.AppendSeparator()
 		viewMenu.Append(1002, "Fit Player View to Map\tCTRL+0",
 						"Zoom the player view out until the whole map fits.")
 		self.Bind(wx.EVT_MENU, self.onFitPlayerView, id=1002)
-		self.Bind(wx.EVT_UPDATE_UI, self.onViewportUpdate, id=1002)
+		self.Bind(wx.EVT_UPDATE_UI, self.onPlayerViewUpdate, id=1002)
 		viewMenu.AppendSeparator()
 		viewMenu.Append(1003, "Zoom &In\tCTRL+=", "Zoom the GM map in one level.")
 		self.Bind(wx.EVT_MENU, self.onZoomIn, id=1003)
@@ -232,33 +252,46 @@ class GMFrame(MapPanelFrame):
 
 		self.SetMenuBar(self.menuBar)
 
-	def __createBrushToolbar(self):
+		# CTRL+B used to toggle the player viewport overlay, from before it
+		# became a mode of its own.  Kept working, as a jump into that mode and
+		# back out again; no menu item claims it, so it lives in a table here.
+		self.Bind(wx.EVT_MENU, self.onToggleViewportMode, id=GMFrame.TOGGLE_VIEWPORT_ID)
+		self.SetAcceleratorTable(wx.AcceleratorTable([
+			wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("B"), GMFrame.TOGGLE_VIEWPORT_ID)]))
+
+	def __createToolbar(self):
+		"""Mode first, then whatever that mode brings with it, then the GM's own
+		   zoom - which belongs to the window rather than to any one mode, and so
+		   stays put on the right whatever is being shown in the middle."""
 		tb = self.CreateToolBar(wx.TB_HORIZONTAL | wx.NO_BORDER | wx.TB_FLAT)
 
-		tb.AddControl(wx.StaticText(tb, -1, "Brush Type: "))
+		tb.AddControl(wx.StaticText(tb, -1, "Mode: "))
 
-		brushTypes = ["None", "Round", "Square", "Grid"]
-		self.brushType = wx.Choice(tb, -1, (100, 50), choices=brushTypes)
-		self.Bind(wx.EVT_CHOICE, self.onBrushTypeChanged, self.brushType)
-		tb.AddControl(self.brushType)
-
-		tb.AddSeparator()
-
-		tb.AddControl(wx.StaticText(tb, -1, "Brush Size: "))
-
-		self.brushSize = wx.Slider(tb, -1, 1, 1, 100, size=(100, -1), style=wx.SL_HORIZONTAL)
-		self.Bind(wx.EVT_SLIDER, self.onBrushSizeChanged, self.brushSize)
-		tb.AddControl(self.brushSize)
+		self.modeChoice = wx.Choice(tb, -1, choices=[mode.label for mode in self.modes])
+		self.modeChoice.SetToolTip("What the mouse does over the map.")
+		self.Bind(wx.EVT_CHOICE, self.onModeChoice, self.modeChoice)
+		tb.AddControl(self.modeChoice)
 
 		tb.AddSeparator()
 
-		# A plain control rather than a check tool, so it needs no bitmap and
-		# matches how the brush controls above are added.
-		self.viewportToggle = wx.ToggleButton(tb, -1, "Player Viewport")
-		self.viewportToggle.SetToolTip("Show the players' visible area and drag it "
-									   "around.  Suspends the brush.")
-		self.Bind(wx.EVT_TOGGLEBUTTON, self.onViewportButton, self.viewportToggle)
-		tb.AddControl(self.viewportToggle)
+		# One page per mode, rather than showing and hiding controls in place:
+		# the book is as wide as its widest page whichever is showing, so
+		# switching modes does not shuffle the zoom box about.
+		self.modeBook = wx.Simplebook(tb, -1)
+		for mode in self.modes:
+			page = wx.Panel(self.modeBook, -1)
+			pageSizer = wx.BoxSizer(wx.HORIZONTAL)
+			mode.buildControls(page, pageSizer)
+			page.SetSizerAndFit(pageSizer)
+			self.modeBook.AddPage(page, mode.label)
+		# A toolbar takes a control at the size it already is, and a book that
+		# has never been laid out is a few pixels square.  Size it to the
+		# largest page here, which is also what keeps the width steady.
+		sizes = [page.GetBestSize() for page in self.modeBook.GetChildren()]
+		if (sizes):
+			self.modeBook.SetInitialSize(wx.Size(max(size.width for size in sizes),
+												 max(size.height for size in sizes)))
+		tb.AddControl(self.modeBook)
 
 		tb.AddSeparator()
 
@@ -431,30 +464,52 @@ class GMFrame(MapPanelFrame):
 	def hasPlayerView(self):
 		return (self.panel != None) and (self.panel.playerPanel != None)
 
+	# --- modes ------------------------------------------------------------------
+
+	# Mode menu ids, and the id CTRL+B carries.  Well clear of 1001-1006, and
+	# of the 301+ and 401+ ranges the two recent menus use.
+	FIRST_MODE_ID = 1010
+	TOGGLE_VIEWPORT_ID = 1009
+
+	def setMode(self, mode):
+		if (self.panel != None):
+			self.panel.setMode(mode)
+
+	def onModeChoice(self, evt):
+		index = self.modeChoice.GetSelection()
+		if (index != wx.NOT_FOUND):
+			self.setMode(self.modes[index])
+		# The panel has the last word on which mode it is in - an unavailable
+		# one falls back - so let it say what the switcher should read.
+		self.updateControlState()
+
+	def onModeMenuUpdate(self, evt):
+		mode = self.modes[evt.GetId() - GMFrame.FIRST_MODE_ID]
+		evt.Enable(mode.isAvailable())
+		evt.Check((self.panel != None) and (self.panel.mode is mode))
+
+	def onToggleViewportMode(self, evt):
+		"""CTRL+B, which used to switch the overlay on and off: into the
+		   viewport mode, or back to the main one if that is where we are."""
+		mode = self.panel.modeByKey(modes.ViewportMode.key)
+		self.setMode(self.modes[0] if (self.panel.mode is mode) else mode)
+
 	def updateControlState(self):
-		"""Keep the toolbar in step however the overlay got toggled - button,
-		   menu, or a setting read back from a map file - and with whether the
-		   open document can be painted on at all."""
-		active = (self.panel != None) and self.panel.showViewport
-		self.viewportToggle.SetValue(active)
-		self.viewportToggle.Enable(self.hasPlayerView())
-		# The overlay takes over the mouse, and a plain image has no fog, so
-		# either way the brush is unavailable.
-		canPaint = (self.panel != None) and self.panel.canPaint() and (not active)
-		self.brushType.Enable(canPaint)
-		self.brushSize.Enable(canPaint)
+		"""Keep the toolbar in step however the mode got changed - the
+		   switcher, the menu, or a setting read back from a map file - and
+		   with what the open document allows."""
+		mode = self.panel.mode if (self.panel != None) else None
+		if (mode in self.modes):
+			index = self.modes.index(mode)
+			self.modeChoice.SetSelection(index)
+			self.modeBook.SetSelection(index)
+		self.modeChoice.Enable(self.panel != None)
+		for each in self.modes:
+			each.updateControls()
 		self.updateZoomControl()
 
-	def onViewportButton(self, evt):
-		self.panel.setShowViewport(self.viewportToggle.GetValue())
-
-	def onViewportToggle(self, evt):
-		self.panel.setShowViewport(evt.IsChecked())
-
-	def onViewportUpdate(self, evt):
+	def onPlayerViewUpdate(self, evt):
 		evt.Enable(self.hasPlayerView())
-		if (evt.GetId() == 1001):
-			evt.Check(self.hasPlayerView() and self.panel.showViewport)
 
 	def onFitPlayerView(self, evt):
 		if (self.hasPlayerView() and (self.panel.map != None)):
@@ -495,50 +550,6 @@ class GMFrame(MapPanelFrame):
 
 	def onZoomUpdate(self, evt):
 		evt.Enable((self.panel != None) and (self.panel.map != None))
-
-	def onBrushTypeChanged(self, evt):
-		if (not self.panel.canPaint()):
-			return
-		brush = None
-		brushType = self.brushType.GetStringSelection()
-		self.updateBrushSizeSlider(brushType == "Grid")
-		if (brushType == "Round"):
-			brush = data.RoundFreehandBrush(self.getBrushSize())
-		elif (brushType == "Square"):
-			# TODO: We could support rects if we wanted
-			size = self.getBrushSize()
-			brush = data.SquareFreehandBrush(size, size)
-		elif (brushType == "Grid"):
-			if (self.panel.map.grid.type == data.Grid.GRID_NONE):
-				dlg = wx.MessageDialog(self, 'Cannot set brush type to grid unless grid is enabled.', 'Bad Brush Choice', wx.OK | wx.ICON_ERROR)
-				dlg.ShowModal()
-				dlg.Destroy()
-				self.brushType.SetStringSelection("None")
-			elif (self.panel.map.grid.type == data.Grid.GRID_SQUARE):
-				brush = data.SquareGridBrush(self.panel.map.grid.size, self.getBrushSize())
-			elif (self.panel.map.grid.type == data.Grid.GRID_HEX):
-				brush = data.HexGridBrush(self.panel.map.grid.size, self.getBrushSize())
-		self.panel.setBrush(brush)
-		self.panel.Refresh()
-
-	def onBrushSizeChanged(self, evt):
-		if (self.panel.brush != None):
-			size = self.getBrushSize()
-			self.panel.brush.setSize(size)
-			self.panel.Refresh()
-
-	def getBrushSize(self):
-		return self.brushSize.GetValue() 
-	
-	def updateBrushSizeSlider(self, isGrid):
-		if (isGrid):
-			newValue = (self.brushSize.GetValue() * 10 // self.brushSize.GetMax())
-			self.brushSize.SetRange(1, 10)
-			self.brushSize.SetValue(newValue)
-		else:
-			newValue = 5 + (self.brushSize.GetValue() * 495 // self.brushSize.GetMax())			
-			self.brushSize.SetRange(5, 500)
-			self.brushSize.SetValue(newValue)
 
 	# Both recent lists are capped so their menu ids cannot run into the next
 	# range: files use 301+, projects 401+.

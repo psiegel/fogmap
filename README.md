@@ -16,7 +16,7 @@ src/fogmap/            the application
   app.py                 the wx.App: holds the project and the open document
   gfx.py  hex.py         image helpers and hex geometry
   data/                  maps, masks, brushes, projects - no UI
-  ui/                    frames, panels, the project tree, the toolbar
+  ui/                    frames, panels, input modes, the tree, the toolbar
   resources/             the app icon, shipped inside the package
 tests/data/            a sample map and its image
 ```
@@ -101,26 +101,51 @@ copies left in there are offered back the next time that project is opened.
 
 ## Controls
 
+### Modes
+
+The left-most control on the GM toolbar says what the mouse is for. Everything
+between it and the **Zoom** box belongs to whichever mode is picked and changes
+with it; the zoom past that is the GM's own and stays where it is.
+
+| Mode | What the mouse does | Its own toolbar controls |
+| --- | --- | --- |
+| **Fog** | Reveals and re-hides the map with the brush | Brush type and brush size |
+| **Viewport** | Moves and resizes what the players can see | **Fit to Map** |
+
+`Ctrl+Shift+1` and `Ctrl+Shift+2` pick them, as do **View > Fog Mode** and
+**View > Viewport Mode**. `Ctrl+B`, which used to switch the player viewport
+outline on and off, still works: it jumps into Viewport mode, and back out to
+Fog if that is already where you are.
+
+The mode is saved with the map, so a map comes back the way it was left.
+
+Holding **Alt** borrows the mouse for the Player View whichever mode is
+selected, and hands it back when the key comes up.
+
 **GM View**
 
 | Action | Effect |
 | --- | --- |
+| **Fog mode** | |
 | Left click / drag | Reveal with the current brush |
 | Right click / drag | Re-hide with the current brush |
 | Shift / Ctrl while dragging | Lock the brush to one axis |
-| **Hold Alt** | Drive the Player View with the mouse instead of the brush |
+| Toolbar | Brush type (None / Round / Square / Grid) and size |
+| **Viewport mode** | |
+| Drag | Move the players' visible area |
+| Drag an edge / corner | Resize the players' visible area |
+| **Fit to Map** button | Zoom the Player View out to the whole map (same as `Ctrl+0`) |
+| **Any mode** | |
+| `Ctrl+Shift+1` / `Ctrl+Shift+2` | Fog mode / Viewport mode |
+| `Ctrl+B` | Into Viewport mode, or back out to Fog |
+| **Hold Alt** | Drive the Player View with the mouse instead |
 | Alt + drag (either button) | Pan the Player View |
 | Alt + wheel | Zoom the Player View about the map point under the cursor |
 | Alt + right double-click | Recentre the Player View |
-| `Ctrl+B` | Show or hide the player viewport (suspends the brush) |
-| Drag, viewport shown | Move the players' visible area |
-| Drag an edge / corner, viewport shown | Resize the players' visible area |
 | `Ctrl+0` | Zoom the Player View out to the whole map |
 | `Ctrl+=` / `Ctrl+-` | Zoom the GM map in or out one level |
 | `Ctrl+1` / `Ctrl+9` | GM map at 100% / zoomed out until all of it fits |
 | `Ctrl` + wheel | Zoom the GM map about the point under the cursor |
-| Toolbar | Brush type (None / Round / Square / Grid) and size, and the GM zoom |
-| **Player Viewport** button | Toggle player viewport mode (same as `Ctrl+B`) |
 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+A` | New / Open / Save / Save As |
 | `Ctrl+Shift+O` / `Ctrl+Shift+S` | Open Project / Save All |
 | `Ctrl+W` | Swap the underlying image, keeping the revealed mask |
@@ -144,7 +169,8 @@ whole hexes. It is only selectable while a grid is active.
 
 The GM window forwards key presses to the Player View, so the GM can zoom and pan
 what the players see without leaving their own window. Holding **Alt** forwards the
-mouse as well: the brush is suspended, the cursor turns into a hand, and dragging or
+mouse as well, whatever mode the toolbar is in: the selected mode lets go of the
+mouse for as long as the key is down, the cursor turns into a hand, and dragging or
 scrolling over the GM map pans and zooms what the players are looking at. Alt + wheel
 zooms the Player View around whichever map feature the GM is pointing at, whatever
 zoom the GM's own map happens to be at.
@@ -170,20 +196,20 @@ with grabbable handles however far the map is zoomed out.
 The level is saved with the map, so a map comes back at the zoom you left it at -
 which, like moving the Player View, counts as a change worth saving.
 
-## The player viewport outline
+## Viewport mode
 
-The **Player Viewport** button on the toolbar, **View > Show Player Viewport**, and
-`Ctrl+B` all do the same thing and stay in step with each other. It is off by
-default. When on, the GM map is overlaid with a cyan
-rectangle marking exactly what the players can currently see, with a handle on
-each corner and edge.
+Picking **Viewport** on the toolbar, **View > Viewport Mode**, `Ctrl+Shift+2` and
+`Ctrl+B` all do the same thing and stay in step with each other. In this mode the
+GM map is overlaid with a cyan rectangle marking exactly what the players can
+currently see, with a handle on each corner and edge.
 
 The rectangle is never stored anywhere. It is derived from the Player View's own
 zoom and pan every time it is drawn, so it cannot fall out of sync with what the
 players are looking at, and it updates live as the view moves.
 
-While it is on, the overlay owns the mouse and **the brush is suspended** - the
-brush controls grey out, and no click will paint or un-paint the fog. Instead:
+While it is on, the overlay owns the mouse and **there is no brush** - the brush
+controls belong to Fog mode and are not on the toolbar at all, so no click can
+paint or un-paint the fog. Instead:
 
 - **Drag anywhere** to move the players' visible area. The rectangle follows the
   cursor one-for-one and the zoom is untouched. The cursor is a hand to show this.
@@ -196,14 +222,19 @@ ratio of the player window, so the players never see bars or a stretched map. A
 corner follows whichever axis you dragged further. Resizing is bounded by the same
 zoom limits as the mouse wheel, so a handle cannot be dragged past them.
 
-Switch the overlay off to get the brush back. The setting starts off and is saved
-with the map.
+Switch back to Fog mode to get the brush back. Maps open in Fog mode unless the
+file says otherwise, and the mode is saved with the map.
 
 ## File format
 
 A `.map` file is XML holding a *path* to the map image plus the reveal mask,
-plus the Player View's zoom and pan and the GM's own zoom and overlay setting.
+plus the Player View's zoom and pan and the GM's own zoom and input mode.
 The image itself is not embedded.
+
+Files written before the player viewport became a mode store it instead as a
+`<viewport visible="...">` flag beside the zoom. Those are still read - the flag
+becomes Viewport mode or Fog mode - and are written out in the new shape the
+next time that map is saved.
 
 The mask is one bit per pixel — set where the map shows through — packed,
 deflated and base64'd. The two alphas the app actually draws with (transparent

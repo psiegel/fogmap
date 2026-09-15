@@ -8,7 +8,6 @@ from .. import gfx
 from .. import data
 
 from . import grid
-from . import viewport
 
 class MapPanel(wx.Panel):	
 	def __init__(self, parent):
@@ -527,25 +526,18 @@ class GMMapPanel(MapPanel):
 	DEFAULT_ZOOM = 1.0
 
 	def __init__(self, parent):
-		self.brush = None
-		# Map pixels, not panel coordinates: the two are the same thing only at
-		# 100%, and everything a brush touches is counted in map pixels.
-		self.mouse = (0, 0)
-		self.lastBrushPt = None
-		# Where the brush cursor was last actually painted, which is not the
-		# same as where the mouse was a moment ago: several moves can go by
-		# between repaints.  Cleaning up after the cursor means invalidating
-		# where it really is on screen.
-		self.brushDrawnAt = None
-		self.axisLock = (False, False)
-		self.forwarding = False
-		self.forwardAnchor = None
-		self.showViewport = False
-		self.viewportHandle = None
-		self.viewportBase = None
-		self.viewportGrabPt = None
-		self.viewportHover = None
-		self.viewportListener = None
+		# What the mouse is for.  This panel knows only how to hand an event to
+		# a mode and let one draw over the map; the modes themselves, and the
+		# toolbar controls that come and go with them, are in ui/modes.py.
+		self.modes = ()
+		self.mode = None
+		# Two things take the mouse off whatever the toolbar says the mode is:
+		# holding Alt, which hands it to the player view for as long as it is
+		# down, and a drag, which belongs to whoever started it until it ends.
+		self.altMode = None
+		self.altHeld = False
+		self.dragMode = None
+		self.modeListener = None
 		self.cursorKey = None
 		# The map used to be drawn 1:1 and merely scrolled.  It is now drawn
 		# through this scale, so the panel is the size of the map at the
@@ -586,7 +578,8 @@ class GMMapPanel(MapPanel):
 		self.scale = scale
 		self._applyMinSize()
 		# Whatever is on screen was drawn at the old zoom, cursor included.
-		self.brushDrawnAt = None
+		if (self.mode != None):
+			self.mode.onZoomChanged()
 		if (self.zoomListener != None):
 			self.zoomListener()
 		if (user and (self.playerPanel != None)):
@@ -695,292 +688,181 @@ class GMMapPanel(MapPanel):
 		return (int(math.floor(pt[0] / self.scale)),
 				int(math.floor(pt[1] / self.scale)))
 
-	def setBrush(self, brush):
-		self.brush = brush
-		# Anchors are not comparable between brushes - a hex brush counts in
-		# hexes, a freehand one in pixels - so the last one means nothing now.
-		self.lastBrushPt = None
-
 	def setPlayerPanel(self, panel):
 		super(GMMapPanel, self).setPlayerPanel(panel)
 		panel.setViewListener(self._onPlayerViewChanged)
 
 	def _onPlayerViewChanged(self):
-		if (self.showViewport):
-			self.Refresh(False)
-
-	def setViewportListener(self, listener):
-		"""Called when the overlay is switched on or off, so the frame can grey
-		   out the brush controls that the overlay disables."""
-		self.viewportListener = listener
-
-	def setShowViewport(self, show, user=True):
-		"""user is False when a document's saved state is being restored, which
-		   is nothing to flag as a change."""
-		self.showViewport = show
-		self._endViewportDrag()
-		self.viewportHover = None
-		if (not show):
-			self._setCursorFor(None)
-		if (self.viewportListener != None):
-			self.viewportListener()
-		if (user and (self.playerPanel != None)):
-			self.playerPanel._userViewChanged()
-		self.Refresh()
-
-	def viewportActive(self):
-		"""While the overlay is up the mouse drives it, and the brush is off."""
-		return self.showViewport and (self.playerPanel is not None)
+		if (self.mode != None):
+			self.mode.onPlayerViewChanged()
 
 	def canPaint(self):
 		"""A plain image has no fog to paint, and nowhere to save it to."""
 		return (self.map != None) and self.map.editable
 
-	VIEWPORT_TOLERANCE = 6
-	VIEWPORT_HANDLE_SIZE = 9
-	VIEWPORT_MOVE = "move"
+	# --- modes ----------------------------------------------------------------
 
-	def _viewportRect(self):
-		"""The player viewport in map pixels, or None if there is nothing to show."""
-		if ((not self.showViewport) or (self.playerPanel is None)):
-			return None
-		return self.playerPanel.getViewportRect()
+	def setModes(self, modes, altMode=None):
+		"""The modes this panel can be put into, in the order the switcher
+		   offers them, plus the one Alt borrows the mouse for."""
+		self.modes = tuple(modes)
+		self.altMode = altMode
 
-	def _viewportTolerance(self):
-		"""The grab tolerance is a distance on screen, so how much of the map
-		   it covers depends on the zoom."""
-		return GMMapPanel.VIEWPORT_TOLERANCE / self.scale
+	def setModeListener(self, listener):
+		"""Called when the mode changes, so the toolbar can follow it with the
+		   switcher and with that mode's own controls."""
+		self.modeListener = listener
 
-	def _viewportHitTest(self, pos):
-		"""pos is in map pixels, which is what the overlay is measured in."""
-		rect = self._viewportRect()
-		if (rect is None):
-			return None
-		return viewport.hitTest(rect, pos, self._viewportTolerance())
+	def defaultMode(self):
+		"""The mode a map opens in unless its file says otherwise."""
+		return self.modes[0] if self.modes else None
 
-	def _setCursorFor(self, key):
-		if (key == self.cursorKey):
+	def modeByKey(self, key):
+		for mode in self.modes:
+			if (mode.key == key):
+				return mode
+		return None
+
+	def setMode(self, mode, user=True):
+		"""user is False when a map's saved mode is being restored, which is
+		   nothing to flag as a change."""
+		if ((mode is None) or (not mode.isAvailable())):
+			mode = self.defaultMode()
+		if (mode is self.mode):
 			return
-		self.cursorKey = key
-		if (key is None):
-			self.SetCursor(wx.Cursor(wx.CURSOR_ARROW))
-		else:
-			# Anything that is not a resize handle is a grab.
-			self.SetCursor(wx.Cursor(viewport.CURSORS.get(key, wx.CURSOR_HAND)))
-
-	def _grabViewport(self, pos):
-		"""Take hold of the overlay: an edge or corner resizes, anywhere else moves."""
-		if (not self.viewportActive()):
-			return False
-		rect = self._viewportRect()
-		if (rect is None):
-			return False
-		handle = viewport.hitTest(rect, pos, self._viewportTolerance())
-		self.viewportHandle = handle or GMMapPanel.VIEWPORT_MOVE
-		self.viewportBase = rect
-		self.viewportGrabPt = pos
-		if (not self.HasCapture()):
-			self.CaptureMouse()
-		return True
-
-	def _endViewportDrag(self):
-		self.viewportHandle = None
-		self.viewportBase = None
-		self.viewportGrabPt = None
-		if (self.HasCapture()):
-			self.ReleaseMouse()
-
-	def _dragViewport(self, pos):
-		if ((self.viewportBase is None) or (self.playerPanel is None)):
-			return
-		if (self.viewportHandle == GMMapPanel.VIEWPORT_MOVE):
-			# Both points are already map pixels, so the rectangle follows the
-			# cursor one-for-one at any zoom.
-			rect = (self.viewportBase[0] + pos[0] - self.viewportGrabPt[0],
-					self.viewportBase[1] + pos[1] - self.viewportGrabPt[1],
-					self.viewportBase[2], self.viewportBase[3])
-		else:
-			aspect = self.playerPanel.getViewportAspect()
-			if (aspect is None):
-				return
-			# Scale limits become width limits, so a drag cannot outrun the zoom range.
-			cw = self.playerPanel.GetClientSize()[0]
-			rect = viewport.resize(self.viewportBase, self.viewportHandle, pos, aspect,
-								   cw / float(PlayerMapPanel.MAX_SCALE),
-								   cw / float(PlayerMapPanel.MIN_SCALE))
-		self.playerPanel.showMapRect(rect)
-
-	def onCaptureLost(self, evt):
-		self.viewportHandle = None
-		self.viewportBase = None
-		self.viewportGrabPt = None
-
-	def _forwardsToPlayer(self, evt):
-		"""While Alt is held the mouse drives the player view instead of the brush."""
-		return (self.playerPanel is not None) and evt.AltDown()
-
-	def _setForwarding(self, forwarding):
-		if (forwarding == self.forwarding):
-			return
-		self.forwarding = forwarding
-		self._setCursorFor("hand" if forwarding else None)
+		if (self.mode != None):
+			self.mode.leave()
+		self.dragMode = None
+		self.altHeld = False
+		self.mode = mode
+		if (mode != None):
+			mode.enter()
+		self.setModeCursor(None)
+		if (self.modeListener != None):
+			self.modeListener()
+		if (user and (self.playerPanel != None)):
+			self.playerPanel._userViewChanged()
 		self.Refresh()
 
+	def currentMode(self):
+		"""Whichever mode the mouse is actually driving: the one holding an
+		   unfinished drag, the Alt override while it is held, or the mode the
+		   toolbar says we are in."""
+		if (self.dragMode != None):
+			return self.dragMode
+		if (self.altHeld):
+			return self.altMode
+		return self.mode
+
+	def _allModes(self):
+		"""Every mode there is, the Alt one included: state that goes with the
+		   open map has to be dropped whether or not a mode is on screen."""
+		if (self.altMode is None):
+			return self.modes
+		return self.modes + (self.altMode,)
+
+	def _trackAlt(self, evt):
+		"""Notice Alt going down or coming up.  It swaps which mode has the
+		   mouse, and with it what is drawn over the map, so the panel has to
+		   be repainted - but never mid-drag, which belongs to whichever mode
+		   started it however the keyboard moves underneath it."""
+		if (self.dragMode != None):
+			return
+		held = (self.altMode != None) and self.altMode.appliesTo(evt)
+		if (held == self.altHeld):
+			return
+		self.altHeld = held
+		self.setModeCursor(None)
+		self.Refresh()
+
+	def setModeCursor(self, cursor):
+		"""Modes say which cursor they want - a wx.CURSOR_ constant, or None
+		   for the plain arrow.  Only changes actually reach wx: setting a
+		   cursor on every mouse move is not free."""
+		if (cursor == self.cursorKey):
+			return
+		self.cursorKey = cursor
+		self.SetCursor(wx.Cursor(cursor if (cursor != None) else wx.CURSOR_ARROW))
+
+	# --- mouse ----------------------------------------------------------------
+	# Every handler undoes the zoom once, here, so that modes deal only in map
+	# pixels; a button press that a mode claims also hands it the drag.
+
 	def onLeftDown(self, evt):
-		pos = self._clientToMap(evt.GetPosition())
-		if (self._grabViewport(pos)):
-			return
-		if (self._forwardsToPlayer(evt)):
-			self.forwardAnchor = pos
-			return
-		if ((self.brush != None) and self.canPaint()):
-			self.map.applyBrush(self.brush, pos[0], pos[1])
-			self.lastBrushPt = self.brush.anchor(pos[0], pos[1])
-			
+		self._trackAlt(evt)
+		mode = self.currentMode()
+		if ((mode != None) and mode.onLeftDown(evt, self._clientToMap(evt.GetPosition()))):
+			self.dragMode = mode
+
 	def onRightDown(self, evt):
-		pos = self._clientToMap(evt.GetPosition())
-		if (self._grabViewport(pos)):
-			return
-		if (self._forwardsToPlayer(evt)):
-			self.forwardAnchor = pos
-			return
-		if ((self.brush != None) and self.canPaint()):
-			self.map.unapplyBrush(self.brush, pos[0], pos[1])
-			self.lastBrushPt = self.brush.anchor(pos[0], pos[1])
+		self._trackAlt(evt)
+		mode = self.currentMode()
+		if ((mode != None) and mode.onRightDown(evt, self._clientToMap(evt.GetPosition()))):
+			self.dragMode = mode
 
 	def onMouseUp(self, evt):
-		self.forwardAnchor = None
-		if (self.viewportHandle is not None):
-			self._endViewportDrag()
+		mode = self.currentMode()
+		if (mode != None):
+			mode.onMouseUp(evt, self._clientToMap(evt.GetPosition()))
+		self.dragMode = None
 		evt.Skip()
 
 	def onRightDClick(self, evt):
-		if (self._forwardsToPlayer(evt)):
-			self.playerPanel.recentre()
-		else:
+		self._trackAlt(evt)
+		mode = self.currentMode()
+		if ((mode is None) or
+			(not mode.onRightDClick(evt, self._clientToMap(evt.GetPosition())))):
 			evt.Skip()
 
 	def onWheel(self, evt):
 		if (evt.ControlDown() or evt.CmdDown()):
-			# Zoom this panel, keeping whatever is under the cursor there.
+			# Zoom this panel, keeping whatever is under the cursor there.  The
+			# GM's own zoom belongs to the window rather than to any one mode.
 			self.zoomStep(1 if (evt.GetWheelRotation() > 0) else -1,
 						  evt.GetPosition())
 			return
-		if (not self._forwardsToPlayer(evt)):
+		self._trackAlt(evt)
+		mode = self.currentMode()
+		if ((mode is None) or
+			(not mode.onWheel(evt, self._clientToMap(evt.GetPosition())))):
 			# Leave the wheel alone so the scrolled panel keeps scrolling.
 			evt.Skip()
-			return
-		increment = 0.1 if (evt.GetWheelRotation() > 0) else -0.1
-		self.playerPanel.zoomAtMapPoint(increment,
-										self._clientToMap(evt.GetPosition()))
-
-	def _forwardDrag(self, evt, pos):
-		if (evt.LeftIsDown() or evt.RightIsDown()):
-			if (self.forwardAnchor is not None):
-				# Both points are map pixels already, whatever the zoom.
-				self.playerPanel.panByMapDelta(pos[0] - self.forwardAnchor[0],
-											   pos[1] - self.forwardAnchor[1])
-			self.forwardAnchor = pos
-		else:
-			self.forwardAnchor = None
 
 	def onMouseMove(self, evt):
-		# Everything below works in map pixels, so the zoom is undone once here
-		# rather than in each of the things the mouse can be driving.
-		pos = self._clientToMap(evt.GetPosition())
+		self._dropStaleDrag(evt)
+		self._trackAlt(evt)
+		mode = self.currentMode()
+		if (mode != None):
+			mode.onMouseMove(evt, self._clientToMap(evt.GetPosition()))
 
-		if (self.viewportHandle is not None):
-			if (evt.LeftIsDown() or evt.RightIsDown()):
-				self._dragViewport(pos)
-			else:
-				self._endViewportDrag()
+	def _dropStaleDrag(self, evt):
+		"""A button let go somewhere this panel never heard about - off the
+		   edge of it, with nothing captured - would otherwise leave a drag
+		   that nobody ever ends, and with it a mode holding the mouse for
+		   good.  The next move with no button down is proof it is over."""
+		if ((self.dragMode is None) or evt.LeftIsDown() or evt.RightIsDown()):
 			return
+		self.dragMode.onMouseUp(evt, self._clientToMap(evt.GetPosition()))
+		self.dragMode = None
 
-		if (self.viewportActive()):
-			# The overlay owns the mouse: edges and corners resize, the rest grabs.
-			self._setForwarding(False)
-			self.forwardAnchor = None
-			self.viewportHover = self._viewportHitTest(pos)
-			self._setCursorFor(self.viewportHover or GMMapPanel.VIEWPORT_MOVE)
-			return
+	def onCaptureLost(self, evt):
+		self.dragMode = None
+		for mode in self._allModes():
+			mode.onCaptureLost()
 
-		if (self._forwardsToPlayer(evt)):
-			self._setForwarding(True)
-			self._forwardDrag(evt, pos)
-			return
-		self._setForwarding(False)
-		self.forwardAnchor = None
-		self.viewportHover = None
-		self._setCursorFor(None)
+	# --- drawing --------------------------------------------------------------
 
-		self.axisLock = (evt.ShiftDown(), evt.ControlDown())
-		mousePos = pos
-		if (not self.axisLock[0] and not self.axisLock[1]):
-			self.mouse = mousePos
-		elif (self.axisLock[0]):
-			self.mouse = (self.mouse[0], mousePos[1])
-		elif (self.axisLock[1]):
-			self.mouse = (mousePos[0], self.mouse[1])
-		
-		# Where the brush would next leave its mark.  This comes off the brush
-		# rather than off the displayed grid: a grid being switched on says
-		# nothing about whether the brush in hand snaps to it, and taking it
-		# from the grid meant a freehand brush on a gridded map only painted
-		# where it crossed a cell boundary.
-		if ((self.brush != None) and self.canPaint()):
-			ptBrush = self.brush.anchor(self.mouse[0], self.mouse[1])
-			if (ptBrush != self.lastBrushPt):
-				if (evt.LeftIsDown()):
-					self.map.applyBrush(self.brush, self.mouse[0], self.mouse[1])
-				elif (evt.RightIsDown()):
-					self.map.unapplyBrush(self.brush, self.mouse[0], self.mouse[1])
-				self.lastBrushPt = ptBrush
-
-		# Outside that guard on purpose.  The guard is about where the brush
-		# next paints, which a grid snaps to whole cells; the cursor follows
-		# the mouse itself and has to keep up with it whether or not a dab was
-		# laid down.  Painting invalidates the dab's own box as well, and wx
-		# folds the two into one repaint.
-		self._refreshBrushCursor()
-
-	def _brushRect(self, pt):
-		"""Where a brush at pt - a map point - lands on the panel."""
-		return self._mapRectToClient(self.brush.bounds(pt[0], pt[1]))
-
-	def _refreshBrushCursor(self):
-		"""Invalidate just the brush cursor: where it is on screen now, and
-		   where it is about to be.
-
-		   This used to be a whole-panel Refresh, which on a large map meant
-		   rebuilding and blitting every pixel of it to move a small green
-		   circle - so merely hovering over the map was as expensive as
-		   painting on it."""
-		if (self.brush is None):
-			return
-		rect = self._brushRect(self.mouse)
-		if (self.brushDrawnAt is not None):
-			if (self.brush.anchor(*self.brushDrawnAt) ==
-				self.brush.anchor(*self.mouse)):
-				# Same anchor, so what is on screen is already the right shape
-				# in the right place.  This is what keeps a brush that snaps to
-				# the grid from repainting its way across a cell.
-				return
-			rect = rect.Union(self._brushRect(self.brushDrawnAt))
-		self.RefreshRect(rect.Inflate(2, 2))
-			
 	def _draw(self, gc, box):
 		super(GMMapPanel, self)._draw(gc, box)
-		self._drawViewport(gc)
-		self._drawBrush(gc)
-
-	def _drawViewport(self, gc):
-		rect = self._viewportRect()
-		if (rect is not None):
-			# Drawn in panel coordinates rather than under the zoom, so the
-			# outline stays a line and the handles stay grabbable however far
-			# the map is zoomed out.
-			viewport.draw(gc, [v * self.scale for v in rect],
-						  GMMapPanel.VIEWPORT_HANDLE_SIZE)
+		current = self.currentMode()
+		# The mode on the toolbar always draws, so that lending the mouse to the
+		# player view for a moment does not take the player viewport outline off
+		# the screen with it.  It is told it has lost the mouse, so that it can
+		# drop a cursor that would no longer do anything.
+		if (self.mode != None):
+			self.mode.draw(gc, self.mode is current)
+		if ((current != None) and (current is not self.mode)):
+			current.draw(gc, True)
 
 	def _drawMap(self, gc):
 		w, h = self.GetSize()
@@ -1021,20 +903,6 @@ class GMMapPanel(MapPanel):
 		if (self.scale != 1.0):
 			gc.Scale(self.scale, self.scale)
 
-	def _drawBrush(self, gc):
-		# Cursor
-		self.brushDrawnAt = None
-		if ((self.brush != None) and (not self.forwarding) and (not self.showViewport)):
-			color = wx.Colour(0, 255, 0, 128)
-			gc.SetBrush(wx.Brush(color))
-			gc.PushState()
-			self._applyZoom(gc)
-			# The brush draws itself where it would paint, which is in map
-			# pixels - the same place the dab would land.
-			self.brush.drawToGc(gc, self.mouse[0], self.mouse[1])
-			gc.PopState()
-			self.brushDrawnAt = self.mouse
-			
 	def _alpha(self, mask, box=None):
 		return gfx.gmAlpha(mask, box)
 
@@ -1055,22 +923,30 @@ class GMMapPanel(MapPanel):
 
 	def _updateGrid(self):
 		super(GMMapPanel, self)._updateGrid()
-		if (isinstance(self.brush, data.GridBrush)):
-			self.brush.setGridSize(self.map.grid.size)
+		for mode in self._allModes():
+			mode.onGridChanged()
 			
 	def reset(self):
 		super(GMMapPanel, self).reset()
-		self.brush = None
-		# Back to 100% for the incoming map; whatever zoom it was left at comes
-		# back out of its own settings a moment later.  Set directly rather
-		# than through setScale: there is no image to resize the panel around
-		# yet, and this is not the GM changing anything.
+		for mode in self._allModes():
+			mode.reset()
+		# Back to the main mode for the incoming map; whatever mode it was left
+		# in comes back out of its own settings a moment later.
+		self.setMode(self.defaultMode(), user=False)
+		# Back to 100% likewise.  Set directly rather than through setScale:
+		# there is no image to resize the panel around yet, and this is not the
+		# GM changing anything.
 		self.scale = GMMapPanel.DEFAULT_ZOOM
 		
 	def readSettings(self, settings):
 		for child in settings:
-			if (child.tag == "viewport"):
-				self.setShowViewport(child.get("visible") == "true", user=False)
+			if (child.tag == "mode"):
+				self.setMode(self.modeByKey(child.get("name")), user=False)
+			elif (child.tag == "viewport"):
+				# Older files, from before the player viewport became a mode of
+				# its own, store it as a flag beside the zoom.
+				self.setMode(self.modeByKey("viewport") if (child.get("visible") == "true")
+							 else self.defaultMode(), user=False)
 			elif (child.tag == "zoom"):
 				# Snapped to the ladder, so a hand-edited file cannot leave the
 				# view at a level nothing in the UI can name.
@@ -1078,6 +954,6 @@ class GMMapPanel(MapPanel):
 							  user=False)
 	
 	def writeSettings(self, settings):
-		settings.append(etree.Element("viewport",
-									  visible=str(self.showViewport).lower()))
+		if (self.mode != None):
+			settings.append(etree.Element("mode", name=self.mode.key))
 		settings.append(etree.Element("zoom", scale=str(self.scale)))
