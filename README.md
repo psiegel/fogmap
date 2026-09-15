@@ -16,10 +16,26 @@ src/fogmap/            the application
   app.py                 the wx.App: holds the project and the open document
   gfx.py  hex.py         image helpers and hex geometry
   data/                  maps, masks, brushes, projects - no UI
-  ui/                    frames, panels, input modes, the tree, the toolbar
+    brush/                 the shapes the GM paints fog with
+    doc/                   a map: its image, its mask, its grid
+    project/               a folder of maps, and the one open document
+  ui/
+    frames/                the two windows
+    mappanel/              the player view and the GM's own view of a map
+    modes/                 what the mouse is for, and the toolbar that goes with it
+    grid/                  grids drawn over the map
+    viewport.py            the player-viewport rectangle and its handles
+    projecttree.py         the sidebar
+    griddialog.py          the grid settings dialog
   resources/             the app icon, shipped inside the package
 tests/data/            a sample map and its image
 ```
+
+Each of those packages holds one class per file, named for the class in lower
+case, and re-exports them from its `__init__.py` - so callers say
+`ui.modes.FogMode`, not `ui.modes.fogmode.FogMode`, and moving a class between
+files is nobody else's business. Modules that are a set of functions rather
+than a class - `gfx`, `hex`, `ui/viewport.py` - stay single files.
 
 The app icon is `src/fogmap/resources/fogmap.png`, loaded by `fogmap.resources`
 and set on both windows. On Windows and Linux that is the title-bar and taskbar

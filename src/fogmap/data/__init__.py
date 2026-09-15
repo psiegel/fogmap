@@ -1,3 +1,10 @@
-from .brush import RoundFreehandBrush, SquareFreehandBrush, GridBrush, HexGridBrush, SquareGridBrush
-from .doc import Map, Grid
-from .project import Project, Document, isMapPath, isImagePath, isProjectFile
+"""Maps, masks, brushes and projects.  No UI below this line."""
+from .brush import (GridBrush, HexGridBrush, RoundFreehandBrush,
+					SquareFreehandBrush, SquareGridBrush)
+from .doc import Grid, Map
+from .project import (Document, Project, isImagePath, isMapPath,
+					  isProjectFile)
+
+__all__ = ["Document", "Grid", "GridBrush", "HexGridBrush", "Map", "Project",
+		   "RoundFreehandBrush", "SquareFreehandBrush", "SquareGridBrush",
+		   "isImagePath", "isMapPath", "isProjectFile"]

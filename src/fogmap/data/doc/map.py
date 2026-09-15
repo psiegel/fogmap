@@ -1,100 +1,13 @@
-from PIL import Image
-import base64
 import os
-import zlib
+
+from PIL import Image
 from lxml import etree
 
-from .. import gfx
+from ... import gfx
 
-# Mask payloads are runs of identical bytes almost end to end, so deflating
-# them before base64 turns what used to be the whole weight of a map file into
-# a rounding error.  The attribute is what tells a new file from an old one.
-MASK_ENCODING = "zlib"
+from .grid import Grid
+from .mask import isLegacyMaskNode, readMaskNode, writeMaskNode
 
-
-def readMaskNode(element):
-	"""A <maskData> element as a 1-bit mask.
-
-	   Also reads the old byte-per-pixel form, where the file held a separate
-	   alpha mask alongside this one.  The two were only ever two views of the
-	   same boolean - 0/255 here, 128/255 there - so this one carries all of
-	   it and the other is thrown away."""
-	w = int(element.get("width"))
-	h = int(element.get("height"))
-	raw = base64.b64decode(element.text)
-	if (element.get("encoding") == MASK_ENCODING):
-		raw = zlib.decompress(raw)
-	mask = Image.frombytes(element.get("mode"), (w, h), raw)
-	if (mask.mode != gfx.MASK_MODE):
-		# Threshold explicitly: convert() on its own would dither, which would
-		# leave every fog edge speckled.
-		mask = mask.point(lambda v: gfx.MASK_REVEALED if (v > 127) else gfx.MASK_HIDDEN,
-						  mode=gfx.MASK_MODE)
-	return mask
-
-
-def writeMaskNode(tag, mask):
-	node = etree.Element(tag, mode=mask.mode, encoding=MASK_ENCODING,
-						 width=str(mask.size[0]), height=str(mask.size[1]))
-	# tobytes() is where the bit packing happens; rows are padded out to a byte
-	# boundary, which frombytes() undoes given the same width.
-	node.text = base64.b64encode(zlib.compress(mask.tobytes(), 9)).decode("ascii")
-	return node
-
-
-def isLegacyMaskNode(element):
-	return ((element.get("mode") != gfx.MASK_MODE) or
-			(element.get("encoding") != MASK_ENCODING))
-
-class Grid(object):
-	GRID_NONE = "None"
-	GRID_SQUARE = "Square"
-	GRID_HEX = "Hex"
-	
-	def __init__(self, updateCallback=None):
-		self.__type = Grid.GRID_NONE
-		self.__size = 8
-		self.__visible = False
-		self.__updateCallback = updateCallback
-		
-	def setUpdateCallback(self, callback):
-		self.__updateCallback = callback
-		
-	def copy(self):
-		newGrid = Grid(self.__updateCallback)
-		newGrid.__type = self.__type
-		newGrid.__size = self.__size
-		newGrid.__visible = self.__visible
-		return newGrid
-		
-	def setType(self, type):
-		self.__type = type
-		self.callUpdateCallback()
-		
-	def setSize(self, size):
-		self.__size = size
-		self.callUpdateCallback()
-		
-	def setVisible(self, visible):
-		self.__visible = visible
-		self.callUpdateCallback()
-		
-	def toXml(self):
-		return etree.Element("grid", type=self.type, size=str(self.size), visible=str(self.visible).lower())
-	
-	def fromXml(self, xml):
-		self.type = xml.get("type")
-		self.size = int(xml.get("size"))
-		self.visible = xml.get("visible") == "true"
-		
-	def callUpdateCallback(self):
-		if (self.__updateCallback != None):
-			self.__updateCallback()
-		
-	type = property(lambda x: x.__type, setType)
-	size = property(lambda x: x.__size, setSize)
-	visible = property(lambda x: x.__visible, setVisible)
-			
 
 class Map(object):
 	def __init__(self, mapImg, mapImgPath, mask, editable=True):

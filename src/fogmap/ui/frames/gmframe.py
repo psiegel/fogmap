@@ -1,60 +1,16 @@
 import os
-import copy
+
 import wx
 import wx.lib.scrolledpanel as scrolled
 
-from .. import data
-from .. import resources
+from ... import data
 
-from . import mappanel
-from . import modes
-from . import projecttree
-from . import tools
+from .. import mappanel
+from .. import modes
+from .. import projecttree
 
-class MapPanelFrame(wx.Frame):	
-	# A class default, so the update-UI handlers a frame installs can safely
-	# run before its panel has been built.
-	panel = None
-
-	def __init__(self, *args, **kwargs):	
-		super(MapPanelFrame, self).__init__(*args, **kwargs)
-		icons = resources.appIcons()
-		if (icons is not None):
-			# No effect on the Mac, which has no per-window icons; the Dock tile
-			# is set once for the whole app instead.  See FogMapApp.OnInit.
-			self.SetIcons(icons)
-		self.Bind(wx.EVT_CLOSE, self.onClose)		
-
-	def setPanel(self, mapPanel):
-		self.panel = mapPanel
-
-	def setMap(self, map):
-		self.panel.reset()
-		self.panel.setMap(map)
-
-	def onClose(self, evt):
-		canClose = True
-		if (self.panel != None):
-			canClose = self.panel.onClose(evt)
-		if (canClose):
-			self.doClose()
-
-	def doClose(self):
-		self.Destroy()
-
-
-class PlayerFrame(MapPanelFrame):
-	def __init__(self, *args, **kwargs):
-		super(PlayerFrame, self).__init__(*args, **kwargs)			
-		self.setPanel(mappanel.PlayerMapPanel(self))	
-
-		box = wx.BoxSizer(wx.HORIZONTAL)
-		box.Add(self.panel, 1, wx.EXPAND)
-		self.panel.Bind(wx.EVT_LEFT_DCLICK, self.onLeftDClick)
-		self.SetSizer(box)
-
-	def onLeftDClick(self, evt):
-		self.ShowFullScreen(not self.IsFullScreen())
+from ..griddialog import GridDialog
+from .mappanelframe import MapPanelFrame
 
 
 class GMFrame(MapPanelFrame):
@@ -452,7 +408,7 @@ class GMFrame(MapPanelFrame):
 		if (not self.hasGrid()):
 			return
 		currentGrid = self.panel.map.grid.copy()
-		dlg = tools.GridDialog(self.panel.map.grid, self, -1, "Grid Settings")
+		dlg = GridDialog(self.panel.map.grid, self, -1, "Grid Settings")
 		dlg.CenterOnParent()
 		if (dlg.ShowModal() != wx.ID_OK):
 			self.panel.map.grid = currentGrid
@@ -622,4 +578,4 @@ class GMFrame(MapPanelFrame):
 					  lambda evt, path=path: handler(evt, path),
 					  id=menuId)
 
-	
+
