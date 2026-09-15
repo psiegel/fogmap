@@ -29,9 +29,11 @@ POINTER_HALO_WIDTH = 6
 def draw(gc, whiteboard, now=None):
 	"""Every stroke still on the board, in map pixels.  The caller has already
 	   pushed whatever transform puts map pixels where they belong."""
-	for stroke, alpha in whiteboard.visible(now):
+	for stroke, fade in whiteboard.visible(now):
+		# The pen's own opacity and the fade are both alphas, and a stroke
+		# half-faded from a half-transparent pen is fainter than either.
 		colour = wx.Colour(stroke.colour[0], stroke.colour[1], stroke.colour[2],
-						   alpha)
+						   (stroke.colour[3] * fade) // 255)
 		if (len(stroke.points) < 2):
 			# A tap rather than a drag: a round pen leaves a dot.
 			half = stroke.width / 2.0

@@ -33,8 +33,10 @@ class DrawMode(InputMode):
 	# with a floor so that a hairline pen is not impossible to aim.
 	MIN_ERASE_RADIUS = 5
 
-	# The swatch on the toolbar, in pixels.
+	# The swatch on the toolbar, in pixels, and the check behind it that shows
+	# through a part-transparent pen.
 	SWATCH = (26, 14)
+	SWATCH_CHECK = 4
 
 	def __init__(self, frame):
 		super(DrawMode, self).__init__(frame)
@@ -118,12 +120,16 @@ class DrawMode(InputMode):
 		data = wx.ColourData()
 		data.SetColour(self.colour)
 		data.SetChooseFull(True)
+		# The pen is ink over a map rather than a flat fill, so the opacity the
+		# dialog offers is a real setting and has to come back with the colour.
+		data.SetChooseAlpha(True)
 		dlg = wx.ColourDialog(self.frame, data)
 		if (dlg.ShowModal() == wx.ID_OK):
 			# The dialog's colour dies with the dialog, so keep a copy of the
 			# components rather than a reference into wx's own data.
 			picked = dlg.GetColourData().GetColour()
-			self.colour = wx.Colour(picked.Red(), picked.Green(), picked.Blue())
+			self.colour = wx.Colour(picked.Red(), picked.Green(), picked.Blue(),
+									picked.Alpha())
 			self.colourButton.SetBitmap(self.__swatch())
 			# The arrow the players are watching is drawn in the pen's colour,
 			# so it changes under them as soon as the pen does.
@@ -133,12 +139,26 @@ class DrawMode(InputMode):
 
 	def __swatch(self):
 		"""The button's face: the pen's colour, boxed so that a pale one still
-		   reads as a swatch rather than as an empty button."""
+		   reads as a swatch rather than as an empty button, and laid over a
+		   checkerboard so that a part-transparent pen looks like one."""
 		width, height = DrawMode.SWATCH
 		bmp = wx.Bitmap(width, height)
 		dc = wx.MemoryDC(bmp)
-		dc.SetBackground(wx.Brush(self.colour))
+		dc.SetBackground(wx.Brush(wx.Colour(255, 255, 255)))
 		dc.Clear()
+		dc.SetPen(wx.TRANSPARENT_PEN)
+		dc.SetBrush(wx.Brush(wx.Colour(204, 204, 204)))
+		size = DrawMode.SWATCH_CHECK
+		for row in range(0, height, size):
+			for col in range(0, width, size):
+				if (((row + col) // size) % 2):
+					dc.DrawRectangle(col, row, size, size)
+		# The colour goes on through a graphics context: a plain DC brush on
+		# macOS would paint it opaque and lose the whole point of the check.
+		gc = wx.GraphicsContext.Create(dc)
+		gc.SetBrush(wx.Brush(self.colour))
+		gc.DrawRectangle(0, 0, width, height)
+		del gc
 		dc.SetPen(wx.Pen(wx.Colour(64, 64, 64)))
 		dc.SetBrush(wx.TRANSPARENT_BRUSH)
 		dc.DrawRectangle(0, 0, width, height)
@@ -175,8 +195,12 @@ class DrawMode(InputMode):
 		packed = config.ReadInt("colour", (DrawMode.DEFAULT_COLOUR.Red() << 16) |
 										  (DrawMode.DEFAULT_COLOUR.Green() << 8) |
 										  DrawMode.DEFAULT_COLOUR.Blue())
+		# Kept separately from the RGB so that a config written before the pen
+		# had an opacity still reads back as a solid one rather than as an
+		# invisible pen.
+		alpha = min(max(config.ReadInt("opacity", wx.ALPHA_OPAQUE), 0), 255)
 		self.colour = wx.Colour((packed >> 16) & 0xFF, (packed >> 8) & 0xFF,
-								packed & 0xFF)
+								packed & 0xFF, alpha)
 		self.width = min(max(config.ReadInt("width", DrawMode.DEFAULT_WIDTH),
 							 DrawMode.MIN_WIDTH), DrawMode.MAX_WIDTH)
 		# Zero says Never, which is also what an unrecognised value falls back
@@ -187,6 +211,7 @@ class DrawMode(InputMode):
 	def writeConfig(self, config):
 		config.WriteInt("colour", (self.colour.Red() << 16) |
 								  (self.colour.Green() << 8) | self.colour.Blue())
+		config.WriteInt("opacity", self.colour.Alpha())
 		config.WriteInt("width", self.width)
 		config.WriteInt("fade", self.fade if (self.fade is not None) else 0)
 
@@ -247,7 +272,14 @@ class DrawMode(InputMode):
 	def __showPointer(self, pos):
 		player = self.playerPanel
 		if (player is not None):
-			player.setPointer(pos, self.colour)
+			player.setPointer(pos, self.__solidColour())
+
+	def __solidColour(self):
+		"""The pen's colour at full opacity.  The arrow and the nib say where
+		   the pen is rather than what it leaves behind, and a pen set faint
+		   would otherwise be a thing the players cannot see to follow."""
+		return wx.Colour(self.colour.Red(), self.colour.Green(),
+						 self.colour.Blue())
 
 	def __updatePointer(self):
 		"""Point the players at wherever the GM is, or at nothing at all if the
@@ -262,7 +294,8 @@ class DrawMode(InputMode):
 		self.__capture()
 		self.drawing = True
 		self.board().begin((self.colour.Red(), self.colour.Green(),
-							self.colour.Blue()), self.width, pos)
+							self.colour.Blue(), self.colour.Alpha()),
+						   self.width, pos)
 		return True
 
 	def onRightDown(self, evt, pos):
@@ -345,7 +378,7 @@ class DrawMode(InputMode):
 							   .Width(3.0 / self.panel.scale)))
 		gc.DrawEllipse(self.mouse[0] - half, self.mouse[1] - half,
 					   self.width, self.width)
-		gc.SetPen(gc.CreatePen(wx.GraphicsPenInfo(self.colour)
+		gc.SetPen(gc.CreatePen(wx.GraphicsPenInfo(self.__solidColour())
 							   .Width(1.0 / self.panel.scale)))
 		gc.DrawEllipse(self.mouse[0] - half, self.mouse[1] - half,
 					   self.width, self.width)

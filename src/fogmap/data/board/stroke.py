@@ -11,8 +11,9 @@ class Stroke(object):
 	   Nothing about a stroke is ever written to a map file - see Whiteboard."""
 
 	def __init__(self, colour, width, pt):
-		# (r, g, b).  The alpha a stroke is actually drawn with is worked out
-		# from how much of its life is left, and is not stored.
+		# (r, g, b, a), the a being the opacity the pen was set to.  What the
+		# stroke is actually drawn at is that shaded by however much of its
+		# life is left, which is the board's business rather than the stroke's.
 		self.colour = colour
 		self.width = max(float(width), 1.0)
 		self.points = [pt]
