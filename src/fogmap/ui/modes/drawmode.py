@@ -1,6 +1,6 @@
 import wx
 
-from .inputmode import BORDER, InputMode, addLabel
+from .inputmode import BORDER, InputMode, addIcon, addIconButton
 
 
 class DrawMode(InputMode):
@@ -15,6 +15,7 @@ class DrawMode(InputMode):
 
 	key = "draw"
 	label = "Draw"
+	icon = "mode-draw"
 	hotkey = "CTRL+SHIFT+3"
 	help = "Draw over the map for the players, and point at it."
 
@@ -65,39 +66,40 @@ class DrawMode(InputMode):
 	# --- toolbar --------------------------------------------------------------
 
 	def buildControls(self, parent, sizer):
-		addLabel(parent, sizer, "Colour: ")
-		# A swatch that opens the system colour dialog, rather than a
-		# wx.ColourPickerCtrl: wxPython falls back to a Python implementation
-		# of that control on the Mac, and the fallback does not work.
+		# The swatch is its own label - it shows the colour it sets - so unlike
+		# the rest of these it needs no icon in front of it.  A wx.BitmapButton
+		# rather than a wx.ColourPickerCtrl: wxPython falls back to a Python
+		# implementation of that control on the Mac, and the fallback does not
+		# work.
 		self.colourButton = wx.BitmapButton(parent, -1, self.__swatch())
 		self.colourButton.SetToolTip("The colour of the pen, and of the arrow "
 									 "the players see.")
 		self.colourButton.Bind(wx.EVT_BUTTON, self.onPickColour)
 		sizer.Add(self.colourButton, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, BORDER * 2)
 
-		addLabel(parent, sizer, "Size: ")
+		tip = ("How wide the pen is, in map pixels - so a stroke is the same "
+			   "size on the map in both windows.")
+		addIcon(parent, sizer, "size", tip)
 		self.widthSlider = wx.Slider(parent, -1, self.width, DrawMode.MIN_WIDTH,
 									 DrawMode.MAX_WIDTH, size=(80, -1),
 									 style=wx.SL_HORIZONTAL)
-		self.widthSlider.SetToolTip("How wide the pen is, in map pixels - so a "
-									"stroke is the same size on the map in both "
-									"windows.")
+		self.widthSlider.SetToolTip(tip)
 		self.widthSlider.Bind(wx.EVT_SLIDER, self.onWidthChanged)
 		sizer.Add(self.widthSlider, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, BORDER * 2)
 
-		addLabel(parent, sizer, "Fade: ")
+		tip = ("How long a stroke lasts before it fades away.  Never keeps "
+			   "everything until it is rubbed out.")
+		addIcon(parent, sizer, "fade", tip)
 		self.fadeChoice = wx.Choice(parent, -1,
 									choices=[label for label, _ in DrawMode.FADES])
-		self.fadeChoice.SetToolTip("How long a stroke lasts before it fades away.  "
-								   "Never keeps everything until it is rubbed out.")
+		self.fadeChoice.SetToolTip(tip)
 		self.fadeChoice.SetSelection(self.__fadeIndex(self.fade))
 		self.fadeChoice.Bind(wx.EVT_CHOICE, self.onFadeChanged)
 		sizer.Add(self.fadeChoice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, BORDER * 2)
 
-		self.clearButton = wx.Button(parent, -1, "Clear")
-		self.clearButton.SetToolTip("Wipe the whole layer at once.")
-		self.clearButton.Bind(wx.EVT_BUTTON, self.onClear)
-		sizer.Add(self.clearButton, 0, wx.ALIGN_CENTER_VERTICAL)
+		self.clearButton = addIconButton(parent, sizer, "clear",
+										 "Wipe the whole layer at once.",
+										 self.onClear, border=0)
 
 	def updateControls(self):
 		if (self.colourButton is None):

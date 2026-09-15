@@ -4,6 +4,7 @@ import wx
 import wx.lib.scrolledpanel as scrolled
 
 from ... import data
+from ... import resources
 
 from .. import mappanel
 from .. import modes
@@ -36,6 +37,7 @@ class GMFrame(MapPanelFrame):
 
 		self.toolBar = self.__createToolbar()
 		self.toolBar.Realize()
+		self.Bind(wx.EVT_SYS_COLOUR_CHANGED, self.onSysColourChanged)
 
 		# The tree lives in the left half of a splitter that is left unsplit
 		# until a project is opened, so opening a lone file looks as it always did.
@@ -221,15 +223,25 @@ class GMFrame(MapPanelFrame):
 	def __createToolbar(self):
 		"""Mode first, then whatever that mode brings with it, then the GM's own
 		   zoom - which belongs to the window rather than to any one mode, and so
-		   stays put on the right whatever is being shown in the middle."""
-		tb = self.CreateToolBar(wx.TB_HORIZONTAL | wx.NO_BORDER | wx.TB_FLAT)
+		   stays put on the right whatever is being shown in the middle.
 
-		tb.AddControl(wx.StaticText(tb, -1, "Mode: "))
+		   Icons and tooltips rather than captions and labelled drop-downs: the
+		   toolbar is one row across a window whose whole point is the map under
+		   it, and text spends that row faster than anything else."""
+		tb = self.CreateToolBar(wx.TB_HORIZONTAL | wx.NO_BORDER | wx.TB_FLAT |
+								wx.TB_TEXT)
+		tb.SetToolBitmapSize(wx.Size(resources.ICON_SIZE, resources.ICON_SIZE))
 
-		self.modeChoice = wx.Choice(tb, -1, choices=[mode.label for mode in self.modes])
-		self.modeChoice.SetToolTip("What the mouse does over the map.")
-		self.Bind(wx.EVT_CHOICE, self.onModeChoice, self.modeChoice)
-		tb.AddControl(self.modeChoice)
+		for index, mode in enumerate(self.modes):
+			toolId = GMFrame.FIRST_MODE_TOOL_ID + index
+			tb.AddTool(toolId, mode.label, resources.icon(mode.icon), mode.help,
+					   wx.ITEM_RADIO)
+			self.Bind(wx.EVT_TOOL,
+					  lambda evt, mode=mode: self.onModeTool(mode), id=toolId)
+			resources.trackIcon(
+				tb,
+				lambda bundle, toolId=toolId: tb.SetToolNormalBitmap(toolId, bundle),
+				mode.icon)
 
 		tb.AddSeparator()
 
@@ -254,7 +266,7 @@ class GMFrame(MapPanelFrame):
 
 		tb.AddSeparator()
 
-		tb.AddControl(wx.StaticText(tb, -1, "Zoom: "))
+		self.__addIconTool(tb, 1004, "zoom-out", "Zoom the GM map out one level.")
 
 		# Fixed levels rather than a free scale, so this box can always show
 		# exactly where the zoom is, however it was last changed.
@@ -265,7 +277,26 @@ class GMFrame(MapPanelFrame):
 		self.Bind(wx.EVT_CHOICE, self.onZoomChoice, self.zoomChoice)
 		tb.AddControl(self.zoomChoice)
 
+		self.__addIconTool(tb, 1003, "zoom-in", "Zoom the GM map in one level.")
+
 		return tb
+
+	def __addIconTool(self, tb, toolId, name, tip):
+		"""A toolbar tool that shows its icon and no caption, and that keeps
+		   that icon in step with a light/dark switch."""
+		tb.AddTool(toolId, "", resources.icon(name), tip)
+		resources.trackIcon(
+			tb,
+			lambda bundle, toolId=toolId: tb.SetToolNormalBitmap(toolId, bundle),
+			name)
+
+	def onSysColourChanged(self, evt):
+		"""The icons are line art inked for one appearance or the other, and
+		   macOS switches itself between the two at sunset - so this is not
+		   only about the GM changing the setting by hand mid-session."""
+		resources.refreshIcons()
+		self.toolBar.Refresh()
+		evt.Skip()
 
 	def doClose(self):
 		self.Destroy()
@@ -430,16 +461,18 @@ class GMFrame(MapPanelFrame):
 	FIRST_MODE_ID = 1010
 	TOGGLE_VIEWPORT_ID = 1009
 
+	# The switcher's own ids, one per mode, kept apart from the menu's so that
+	# a tool and its menu item can be enabled and checked independently.
+	FIRST_MODE_TOOL_ID = 1030
+
 	def setMode(self, mode):
 		if (self.panel != None):
 			self.panel.setMode(mode)
 
-	def onModeChoice(self, evt):
-		index = self.modeChoice.GetSelection()
-		if (index != wx.NOT_FOUND):
-			self.setMode(self.modes[index])
+	def onModeTool(self, mode):
+		self.setMode(mode)
 		# The panel has the last word on which mode it is in - an unavailable
-		# one falls back - so let it say what the switcher should read.
+		# one falls back - so let it say which tool should end up pressed.
 		self.updateControlState()
 
 	def onModeMenuUpdate(self, evt):
@@ -459,10 +492,16 @@ class GMFrame(MapPanelFrame):
 		   with what the open document allows."""
 		mode = self.panel.mode if (self.panel != None) else None
 		if (mode in self.modes):
-			index = self.modes.index(mode)
-			self.modeChoice.SetSelection(index)
-			self.modeBook.SetSelection(index)
-		self.modeChoice.Enable(self.panel != None)
+			self.modeBook.SetSelection(self.modes.index(mode))
+		for index, each in enumerate(self.modes):
+			toolId = GMFrame.FIRST_MODE_TOOL_ID + index
+			# One tool per mode means each can be enabled on its own, the way
+			# the View menu always has: the viewport mode cannot be entered
+			# without a player window, which the single drop-down could only
+			# say by greying out every mode at once.
+			self.toolBar.EnableTool(toolId,
+									(self.panel != None) and each.isAvailable())
+			self.toolBar.ToggleTool(toolId, each is mode)
 		for each in self.modes:
 			each.updateControls()
 		self.updateZoomControl()

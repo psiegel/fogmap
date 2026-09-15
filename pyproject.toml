@@ -25,4 +25,4 @@ version = {attr = "fogmap.__version__"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"fogmap.resources" = ["*.png", "*.ico", "*.icns"]
+"fogmap.resources" = ["*.png", "*.ico", "*.icns", "icons/*.svg"]

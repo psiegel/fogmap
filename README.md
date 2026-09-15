@@ -124,13 +124,19 @@ copies left in there are offered back the next time that project is opened.
 
 ### Modes
 
-The left-most control on the GM toolbar says what the mouse is for. Everything
-between it and the **Zoom** box belongs to whichever mode is picked and changes
-with it; the zoom past that is the GM's own and stays where it is.
+The three buttons at the left of the GM toolbar say what the mouse is for, and
+exactly one of them is pressed at a time. Everything between them and the
+**Zoom** box belongs to whichever mode is picked and changes with it; the zoom
+past that is the GM's own and stays where it is.
+
+The toolbar is icons and tooltips rather than captions and labelled drop-downs -
+it is one row across the top of a window whose whole point is the map under it.
+The mode buttons keep their names; everything else says what it is when the
+mouse rests on it, and the menus spell all of it out in full.
 
 | Mode | What the mouse does | Its own toolbar controls |
 | --- | --- | --- |
-| **Fog** | Reveals and re-hides the map with the brush | Brush type and brush size |
+| **Fog** | Reveals and re-hides the map with the brush | Brush shape and brush size |
 | **Viewport** | Moves and resizes what the players can see | **Fit to Map** |
 | **Draw** | Draws on the whiteboard layer, and points at the map | Colour, size, fade and **Clear** |
 
@@ -152,16 +158,17 @@ selected, and hands it back when the key comes up.
 | Left click / drag | Reveal with the current brush |
 | Right click / drag | Re-hide with the current brush |
 | Shift / Ctrl while dragging | Lock the brush to one axis |
-| Toolbar | Brush type (None / Round / Square / Grid) and size |
+| Toolbar | Brush shape (none / round / square / grid) and size |
 | **Viewport mode** | |
 | Drag | Move the players' visible area |
 | Drag an edge / corner | Resize the players' visible area |
-| **Fit to Map** button | Zoom the Player View out to the whole map (same as `Ctrl+0`) |
+| **Fit** button | Zoom the Player View out to the whole map (same as `Ctrl+0`) |
 | **Draw mode** | |
 | Move the mouse | The players see an arrow where the GM is pointing |
 | Left drag | Draw on the whiteboard layer, in both views |
 | Right click / drag | Rub out whatever the pen would have covered |
 | Toolbar | Pen colour and size, how long a stroke lasts, and **Clear** |
+| **Clear** button | Wipe the whole layer at once |
 | **Any mode** | |
 | `Ctrl+Shift+1` / `Ctrl+Shift+2` / `Ctrl+Shift+3` | Fog / Viewport / Draw mode |
 | `Ctrl+B` | Into Viewport mode, or back out to Fog |
@@ -204,8 +211,9 @@ zoom the GM's own map happens to be at.
 
 ## Zooming the GM map
 
-The **Zoom** box on the toolbar, the View menu and `Ctrl` + the wheel all set how
-big the GM's own map is drawn, from 10% to 400%. It is entirely separate from the
+The **Zoom** box on the toolbar, the **&minus;** and **+** buttons either side of
+it, the View menu and `Ctrl` + the wheel all set how big the GM's own map is
+drawn, from 10% to 400%. It is entirely separate from the
 Player View: changing it does not move, resize or otherwise touch what the players
 are looking at. Zoom out to find your way around a map far larger than the window,
 zoom in to paint a doorway one square at a time.
@@ -265,7 +273,7 @@ far either view is zoomed. And the left button draws:
 
 - **Drag** to draw a stroke in the colour and width on the toolbar.
 - **Right click or drag** to rub out whatever the pen would have covered.
-- **Clear** wipes the layer at one go.
+- The **Clear** button wipes the layer at one go.
 
 The pen's width is in map pixels rather than screen pixels, so a stroke covers the
 same ground in both windows and stays on the feature it was drawn around whatever
@@ -274,7 +282,8 @@ map's: they are remembered between sessions, and are not part of a map file.
 
 ### Strokes fade
 
-**Fade** on the toolbar says how long a stroke lasts. The clock starts when the pen
+The **Fade** box on the toolbar - the one behind the clock - says how long a
+stroke lasts. The clock starts when the pen
 comes up rather than when it goes down - a slow, careful line does not start fading
 under the hand drawing it - and a stroke spends its last second and a half on the
 way out rather than simply vanishing.

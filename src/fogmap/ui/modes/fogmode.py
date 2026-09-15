@@ -2,7 +2,7 @@ import wx
 
 from ... import data
 
-from .inputmode import BORDER, InputMode, addLabel
+from .inputmode import IconRadioGroup, InputMode, addIcon
 
 
 class FogMode(InputMode):
@@ -11,10 +11,19 @@ class FogMode(InputMode):
 
 	key = "fog"
 	label = "Fog"
+	icon = "mode-fog"
 	hotkey = "CTRL+SHIFT+1"
 	help = "Reveal and re-hide the map with the brush."
 
-	BRUSH_TYPES = ("None", "Round", "Square", "Grid")
+	# What the brush switcher offers, as (name, icon, tooltip).  The name is
+	# what onBrushTypeChanged matches on, and what reset puts back.
+	BRUSH_TYPES = (
+		("None", "brush-none", "No brush - the mouse does nothing to the fog."),
+		("Round", "brush-round", "A round brush, sized in map pixels."),
+		("Square", "brush-square", "A square brush, sized in map pixels."),
+		("Grid", "brush-grid", "A brush that paints whole grid cells at a time.  "
+							   "Needs a grid on the map."),
+	)
 
 	def __init__(self, frame):
 		super(FogMode, self).__init__(frame)
@@ -35,15 +44,15 @@ class FogMode(InputMode):
 	# --- toolbar --------------------------------------------------------------
 
 	def buildControls(self, parent, sizer):
-		addLabel(parent, sizer, "Brush Type: ")
-		self.brushType = wx.Choice(parent, -1, choices=list(FogMode.BRUSH_TYPES))
-		self.brushType.SetStringSelection("None")
-		self.brushType.Bind(wx.EVT_CHOICE, self.onBrushTypeChanged)
-		sizer.Add(self.brushType, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, BORDER * 2)
+		self.brushType = IconRadioGroup(parent, sizer, FogMode.BRUSH_TYPES,
+										self.onBrushTypeChanged)
 
-		addLabel(parent, sizer, "Brush Size: ")
+		tip = ("How big the brush is.  Map pixels for a round or square brush, "
+			   "cells for a grid one.")
+		addIcon(parent, sizer, "size", tip)
 		self.brushSize = wx.Slider(parent, -1, 1, 1, 100, size=(100, -1),
 								   style=wx.SL_HORIZONTAL)
+		self.brushSize.SetToolTip(tip)
 		self.brushSize.Bind(wx.EVT_SLIDER, self.onBrushSizeChanged)
 		sizer.Add(self.brushSize, 0, wx.ALIGN_CENTER_VERTICAL)
 
@@ -55,12 +64,11 @@ class FogMode(InputMode):
 		self.brushType.Enable(canPaint)
 		self.brushSize.Enable(canPaint)
 
-	def onBrushTypeChanged(self, evt):
+	def onBrushTypeChanged(self, brushType):
 		panel = self.panel
 		if (not panel.canPaint()):
 			return
 		brush = None
-		brushType = self.brushType.GetStringSelection()
 		self.updateBrushSizeSlider(brushType == "Grid")
 		if (brushType == "Round"):
 			brush = data.RoundFreehandBrush(self.getBrushSize())
@@ -75,7 +83,7 @@ class FogMode(InputMode):
 									   'Bad Brush Choice', wx.OK | wx.ICON_ERROR)
 				dlg.ShowModal()
 				dlg.Destroy()
-				self.brushType.SetStringSelection("None")
+				self.brushType.SetValue("None")
 			elif (panel.map.grid.type == data.Grid.GRID_SQUARE):
 				brush = data.SquareGridBrush(panel.map.grid.size, self.getBrushSize())
 			elif (panel.map.grid.type == data.Grid.GRID_HEX):
@@ -115,7 +123,7 @@ class FogMode(InputMode):
 		if (self.brushType != None):
 			# The brush goes with the map it was picked for, so the toolbar has
 			# to agree or the GM is left with a type selected and no brush.
-			self.brushType.SetStringSelection("None")
+			self.brushType.SetValue("None")
 
 	def leave(self):
 		# Whatever is on screen was drawn by somebody else from here on.

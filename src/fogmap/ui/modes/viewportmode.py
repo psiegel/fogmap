@@ -2,7 +2,7 @@ import wx
 
 from .. import viewport
 
-from .inputmode import InputMode
+from .inputmode import InputMode, addIconButton
 
 
 class ViewportMode(InputMode):
@@ -15,6 +15,7 @@ class ViewportMode(InputMode):
 
 	key = "viewport"
 	label = "Viewport"
+	icon = "mode-viewport"
 	hotkey = "CTRL+SHIFT+2"
 	help = "Move and resize the area the players can see."
 
@@ -32,10 +33,10 @@ class ViewportMode(InputMode):
 	# --- toolbar --------------------------------------------------------------
 
 	def buildControls(self, parent, sizer):
-		self.fitButton = wx.Button(parent, -1, "Fit to Map")
-		self.fitButton.SetToolTip("Zoom the player view out until the whole map fits.")
-		self.fitButton.Bind(wx.EVT_BUTTON, self.onFit)
-		sizer.Add(self.fitButton, 0, wx.ALIGN_CENTER_VERTICAL)
+		self.fitButton = addIconButton(
+			parent, sizer, "fit",
+			"Zoom the player view out until the whole map fits.",
+			self.onFit, border=0)
 
 	def updateControls(self):
 		if (self.fitButton != None):
