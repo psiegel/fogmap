@@ -1,8 +1,7 @@
 """The project sidebar in the GM window.
 
 A map's own image is nested underneath it rather than sitting beside it, so
-showing the players an unmasked map takes a deliberate expand-and-click.  The
-nesting itself is worked out by Project.scan(); this just draws it.
+showing the players an unmasked map takes a deliberate expand-and-click.
 """
 import os
 import wx
@@ -76,9 +75,6 @@ class ProjectTreePanel(wx.Panel):
 			self.__markItem(item, dirty)
 
 	def refreshDirtyMarks(self, activePath=None, activeDirty=False):
-		"""Re-mark every row from the project's outstanding changes.  The open
-		   document is not in there - its changes are still in memory - so it
-		   is passed in separately."""
 		for key, item in self.itemsByPath.items():
 			path = self.tree.GetItemData(item)
 			dirty = (self.project is not None) and self.project.isDirty(path)
