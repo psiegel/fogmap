@@ -9,6 +9,7 @@
    lasts only as long as Alt is held.  The panel hands it the mouse for that
    long and then gives it straight back.
 """
+from .drawmode import DrawMode
 from .fogmode import FogMode
 from .inputmode import BORDER, InputMode, addLabel
 from .playerdrivemode import PlayerDriveMode
@@ -16,7 +17,7 @@ from .viewportmode import ViewportMode
 
 # What the switcher offers, in the order it offers them.  The first is the
 # mode a map opens in unless its file says otherwise.
-MODES = (FogMode, ViewportMode)
+MODES = (FogMode, ViewportMode, DrawMode)
 
-__all__ = ["BORDER", "FogMode", "InputMode", "MODES", "PlayerDriveMode",
-		   "ViewportMode", "addLabel"]
+__all__ = ["BORDER", "DrawMode", "FogMode", "InputMode", "MODES",
+		   "PlayerDriveMode", "ViewportMode", "addLabel"]

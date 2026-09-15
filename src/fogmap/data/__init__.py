@@ -1,4 +1,5 @@
 """Maps, masks, brushes and projects.  No UI below this line."""
+from .board import Stroke, Whiteboard
 from .brush import (GridBrush, HexGridBrush, RoundFreehandBrush,
 					SquareFreehandBrush, SquareGridBrush)
 from .doc import Grid, Map
@@ -7,4 +8,4 @@ from .project import (Document, Project, isImagePath, isMapPath,
 
 __all__ = ["Document", "Grid", "GridBrush", "HexGridBrush", "Map", "Project",
 		   "RoundFreehandBrush", "SquareFreehandBrush", "SquareGridBrush",
-		   "isImagePath", "isMapPath", "isProjectFile"]
+		   "Stroke", "Whiteboard", "isImagePath", "isMapPath", "isProjectFile"]

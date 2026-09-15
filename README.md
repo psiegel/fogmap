@@ -7,6 +7,9 @@ A fog-of-war map tool for tabletop games. It opens two windows:
 - **GM View** — the full map at half brightness, where the GM paints areas to reveal
   or re-hide with the mouse, at whatever zoom suits the map.
 
+There is also a whiteboard layer over both, for drawing on and pointing at the map
+while the game is going on. Nothing drawn on it is ever saved.
+
 ## Layout
 
 ```
@@ -16,6 +19,7 @@ src/fogmap/            the application
   app.py                 the wx.App: holds the project and the open document
   gfx.py  hex.py         image helpers and hex geometry
   data/                  maps, masks, brushes, projects - no UI
+    board/                 the whiteboard layer and the strokes on it
     brush/                 the shapes the GM paints fog with
     doc/                   a map: its image, its mask, its grid
     project/               a folder of maps, and the one open document
@@ -25,6 +29,7 @@ src/fogmap/            the application
     modes/                 what the mouse is for, and the toolbar that goes with it
     grid/                  grids drawn over the map
     viewport.py            the player-viewport rectangle and its handles
+    board.py               the whiteboard's strokes, and the GM's pointer
     projecttree.py         the sidebar
     griddialog.py          the grid settings dialog
   resources/             the app icon, shipped inside the package
@@ -35,7 +40,7 @@ Each of those packages holds one class per file, named for the class in lower
 case, and re-exports them from its `__init__.py` - so callers say
 `ui.modes.FogMode`, not `ui.modes.fogmode.FogMode`, and moving a class between
 files is nobody else's business. Modules that are a set of functions rather
-than a class - `gfx`, `hex`, `ui/viewport.py` - stay single files.
+than a class - `gfx`, `hex`, `ui/viewport.py`, `ui/board.py` - stay single files.
 
 The app icon is `src/fogmap/resources/fogmap.png`, loaded by `fogmap.resources`
 and set on both windows. On Windows and Linux that is the title-bar and taskbar
@@ -127,9 +132,10 @@ with it; the zoom past that is the GM's own and stays where it is.
 | --- | --- | --- |
 | **Fog** | Reveals and re-hides the map with the brush | Brush type and brush size |
 | **Viewport** | Moves and resizes what the players can see | **Fit to Map** |
+| **Draw** | Draws on the whiteboard layer, and points at the map | Colour, size, fade and **Clear** |
 
-`Ctrl+Shift+1` and `Ctrl+Shift+2` pick them, as do **View > Fog Mode** and
-**View > Viewport Mode**. `Ctrl+B`, which used to switch the player viewport
+`Ctrl+Shift+1`, `Ctrl+Shift+2` and `Ctrl+Shift+3` pick them, as do
+**View > Fog Mode**, **View > Viewport Mode** and **View > Draw Mode**. `Ctrl+B`, which used to switch the player viewport
 outline on and off, still works: it jumps into Viewport mode, and back out to
 Fog if that is already where you are.
 
@@ -151,8 +157,13 @@ selected, and hands it back when the key comes up.
 | Drag | Move the players' visible area |
 | Drag an edge / corner | Resize the players' visible area |
 | **Fit to Map** button | Zoom the Player View out to the whole map (same as `Ctrl+0`) |
+| **Draw mode** | |
+| Move the mouse | The players see an arrow where the GM is pointing |
+| Left drag | Draw on the whiteboard layer, in both views |
+| Right click / drag | Rub out whatever the pen would have covered |
+| Toolbar | Pen colour and size, how long a stroke lasts, and **Clear** |
 | **Any mode** | |
-| `Ctrl+Shift+1` / `Ctrl+Shift+2` | Fog mode / Viewport mode |
+| `Ctrl+Shift+1` / `Ctrl+Shift+2` / `Ctrl+Shift+3` | Fog / Viewport / Draw mode |
 | `Ctrl+B` | Into Viewport mode, or back out to Fog |
 | **Hold Alt** | Drive the Player View with the mouse instead |
 | Alt + drag (either button) | Pan the Player View |
@@ -241,11 +252,52 @@ zoom limits as the mouse wheel, so a handle cannot be dragged past them.
 Switch back to Fog mode to get the brush back. Maps open in Fog mode unless the
 file says otherwise, and the mode is saved with the map.
 
+## Draw mode
+
+**Draw** (`Ctrl+Shift+3`, or **View > Draw Mode**) turns the map into a whiteboard:
+a layer over the top of it that both windows show, for marking up a room, tracing a
+route, or circling the thing everyone is arguing about.
+
+Two things happen in this mode. The GM's cursor appears in the Player View as an
+arrow, so pointing at something on the GM's own screen points at it on the players'
+as well - the arrow is a fixed size on screen, so it stays worth looking at however
+far either view is zoomed. And the left button draws:
+
+- **Drag** to draw a stroke in the colour and width on the toolbar.
+- **Right click or drag** to rub out whatever the pen would have covered.
+- **Clear** wipes the layer at one go.
+
+The pen's width is in map pixels rather than screen pixels, so a stroke covers the
+same ground in both windows and stays on the feature it was drawn around whatever
+the players zoom to. The colour and width are the GM's own settings rather than any
+map's: they are remembered between sessions, and are not part of a map file.
+
+### Strokes fade
+
+**Fade** on the toolbar says how long a stroke lasts. The clock starts when the pen
+comes up rather than when it goes down - a slow, careful line does not start fading
+under the hand drawing it - and a stroke spends its last second and a half on the
+way out rather than simply vanishing.
+
+Set it to **Never** and nothing fades: strokes stay up until they are rubbed out,
+the layer is cleared, or another map is opened. The setting is about the board
+rather than about any one stroke, so changing it applies to what is already on
+screen as well as to what is drawn next.
+
+### The layer is thrown away
+
+Nothing here is saved. A `.map` file holds no trace of it, **Save** and **Save All**
+do not write it, and drawing on it does not mark a map as having unsaved changes.
+Opening another map wipes it - the strokes are in map pixels, and mean nothing over
+a different map - and closing the application takes the lot with it. That is the
+point of it: it is for pointing at things during a session, not for annotating a map.
+
 ## File format
 
 A `.map` file is XML holding a *path* to the map image plus the reveal mask,
 plus the Player View's zoom and pan and the GM's own zoom and input mode.
-The image itself is not embedded.
+The image itself is not embedded, and neither is anything drawn on the
+whiteboard layer - see Draw mode.
 
 Files written before the player viewport became a mode store it instead as a
 `<viewport visible="...">` flag beside the zoom. Those are still read - the flag

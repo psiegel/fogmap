@@ -25,6 +25,13 @@ class FogMapApp(wx.App):
 	lastSavePath = None
 	dirtyShown = False
 	dockIcon = None
+	whiteboard = None
+	boardTimer = None
+
+	# How often the fading of the whiteboard is stepped on.  Often enough to
+	# read as a fade rather than as a stutter, and running only while there is
+	# something on its way out.
+	BOARD_TICK_MS = 66
 
 	def __init__(self, file=None, project=None):
 		super(FogMapApp, self).__init__(0)
@@ -45,7 +52,32 @@ class FogMapApp(wx.App):
 		self.gmFrame.panel.setPlayerPanel(self.playerFrame.panel)
 		self.playerFrame.panel.setUserViewListener(self.onPlayerViewChanged)
 
+		# One drawing layer, shown by both windows and belonging to neither, so
+		# that a stroke the GM makes is already on the players' screen.  It is
+		# no part of a map: nothing here is ever written to a file, and it is
+		# wiped when another map is opened.
+		self.whiteboard = data.Whiteboard()
+		self.whiteboard.setTickListener(self.__wakeBoardClock)
+		self.gmFrame.panel.setWhiteboard(self.whiteboard)
+		self.playerFrame.panel.setWhiteboard(self.whiteboard)
+		self.boardTimer = wx.Timer(self)
+		self.Bind(wx.EVT_TIMER, self.onBoardTick, self.boardTimer)
+
 		return True
+
+	# --- the whiteboard -------------------------------------------------------
+
+	def __wakeBoardClock(self):
+		"""Something on the board has gained a deadline, so the clock has work
+		   to do again."""
+		if ((self.boardTimer is not None) and (not self.boardTimer.IsRunning())):
+			self.boardTimer.Start(FogMapApp.BOARD_TICK_MS)
+
+	def onBoardTick(self, evt):
+		# Stopped the moment nothing is left on a deadline, so a board that is
+		# empty, or set never to fade, costs nothing at all.
+		if (not self.whiteboard.tick()):
+			self.boardTimer.Stop()
 
 	def __showPlayerScreen(self, frame):
 		display = self.__playerDisplay()
@@ -78,6 +110,8 @@ class FogMapApp(wx.App):
 		self.dockIcon.SetIcon(icon)
 
 	def OnExit(self):
+		if (self.boardTimer is not None):
+			self.boardTimer.Stop()
 		# wx complains if a TaskBarIcon outlives the app.
 		if (self.dockIcon is not None):
 			self.dockIcon.Destroy()
@@ -186,6 +220,11 @@ class FogMapApp(wx.App):
 		self.noteDirty()
 
 	def __installDocument(self, doc):
+		# The whiteboard is drawn in map pixels, and means nothing over any map
+		# but the one it was drawn on.  It goes no further than that map, and
+		# never onto disk.
+		if (self.whiteboard is not None):
+			self.whiteboard.clear()
 		self.doc = doc
 		self.dirtyShown = False
 		self.playerFrame.setMap(doc.map)

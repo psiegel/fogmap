@@ -4,6 +4,7 @@ import numpy as np
 from ... import data
 from ... import gfx
 
+from .. import board
 from .. import grid
 
 
@@ -24,6 +25,9 @@ class MapPanel(wx.Panel):
 		self.mapBmp = None
 		self.playerPanel = None
 		self.viewListener = None
+		# The GM's drawings over the map.  Shared between the two windows and
+		# owned by neither; ephemeral, and no part of the map or its file.
+		self.whiteboard = None
 		self._buffer = wx.Bitmap.FromRGBA(1, 1)
 		
 		self.Bind(wx.EVT_SIZE, self.onSize)
@@ -37,6 +41,25 @@ class MapPanel(wx.Panel):
 		self.mapBmp = None
 		self._updateMap()
 		
+	def setWhiteboard(self, whiteboard):
+		"""The drawing layer both windows show.  One board serves both, so a
+		   stroke the GM makes is already on the players' screen."""
+		if (self.whiteboard != None):
+			self.whiteboard.removeUpdateListener(self._boardChanged)
+		self.whiteboard = whiteboard
+		if (whiteboard != None):
+			whiteboard.addUpdateListener(self._boardChanged)
+		self.Refresh(False)
+
+	def _boardChanged(self, rect=None):
+		"""rect is the box of map a stroke touched, or None when the whole
+		   layer changed.  Repainting no more than that is what keeps a fading
+		   stroke from costing the whole map on every frame of the fade."""
+		if ((rect is None) or (self.mapImg is None)):
+			self.Refresh(False)
+			return
+		self.RefreshRect(self._mapRectToClient(rect))
+
 	def setPlayerPanel(self, panel):
 		self.playerPanel = panel
 		self.Bind(wx.EVT_KEY_DOWN, self.playerPanel.onKeyDown)
@@ -89,18 +112,40 @@ class MapPanel(wx.Panel):
 		   rather than relying on the clip to throw it away afterwards."""
 		self._drawMap(gc)
 		if ((self.map != None) and (self.map.grid.visible)):
-			self._drawGrid(gc, box)		
+			self._drawGrid(gc, box)
+		self._drawBoard(gc)
 
 	def onClose(self, evt):
 		if (self.map != None):
 			self.map.removeUpdateListener(self._updateMap)
+		if (self.whiteboard != None):
+			self.whiteboard.removeUpdateListener(self._boardChanged)
+			self.whiteboard = None
 		return True
+
+	def _drawBoard(self, gc):
+		"""The GM's drawings, over the map and its grid.  Held in map pixels,
+		   so this pushes whatever transform the panel draws the map through
+		   and hands them over unchanged - the same stroke then lands on the
+		   same feature in both windows, at whatever zoom each of them is."""
+		if ((self.whiteboard is None) or self.whiteboard.isEmpty() or
+			(self.mapImg is None)):
+			return
+		gc.PushState()
+		self._applyMapTransform(gc)
+		board.draw(gc, self.whiteboard)
+		gc.PopState()
 
 	def _drawMap(self, gc):
 		raise Exception("_drawMap called on base MapPanel class.")
 
 	def _drawGrid(self, gc, box):
 		raise Exception("_drawGrid called on base MapPanel class.")
+
+	def _applyMapTransform(self, gc):
+		"""Put the context into map pixels: the GM's zoom, or the player
+		   view's zoom and pan."""
+		raise Exception("_applyMapTransform called on base MapPanel class.")
 
 	def _alpha(self, mask, box=None):
 		"""How this panel turns the fog mask into alpha.  The two windows show

@@ -50,6 +50,21 @@ class InputMode(object):
 		"""Whether the mode can be entered at all just now."""
 		return True
 
+	# --- settings -------------------------------------------------------------
+	# A mode's own settings belong to the GM rather than to any one map, so
+	# they live in wx.Config alongside the recent-files list rather than in a
+	# map file.  The frame calls these with the path already set to this
+	# mode's own group.
+
+	def readConfig(self, config):
+		"""Called once, before the toolbar is built, so that a mode's controls
+		   can start out where the GM last left them."""
+		pass
+
+	def writeConfig(self, config):
+		"""Called as the window closes."""
+		pass
+
 	# --- lifecycle ------------------------------------------------------------
 
 	def enter(self):
@@ -76,6 +91,11 @@ class InputMode(object):
 		pass
 
 	def onCaptureLost(self):
+		pass
+
+	def onMouseLeave(self):
+		"""The mouse has left the map, so anything the mode was showing at the
+		   cursor is pointing at nothing."""
 		pass
 
 	# --- input ----------------------------------------------------------------

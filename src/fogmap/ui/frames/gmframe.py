@@ -24,6 +24,9 @@ class GMFrame(MapPanelFrame):
 		# They reach the panel through the frame, so it can come later.
 		self.modes = [cls(self) for cls in modes.MODES]
 		self.altMode = modes.PlayerDriveMode(self)
+		# Before the toolbar, which is laid out around controls that have to
+		# start out showing whatever the GM last set them to.
+		self.__readModeConfig()
 
 		self.__createMenu()
 		self.__rebuildRecentFilesMenu()
@@ -534,6 +537,22 @@ class GMFrame(MapPanelFrame):
 		config.SetPath("/")
 		self.sashPos = config.ReadInt("ProjectSashPos", 220)
 
+	def __readModeConfig(self, config=None):
+		"""A mode's own settings - the pen and how long its ink lasts - belong
+		   to the GM rather than to any one map, so they are kept here rather
+		   than in a map file.  One group each, named for the mode."""
+		config = wx.Config("fogmap") if (config is None) else config
+		for mode in self.modes:
+			config.SetPath("/Modes/" + mode.key)
+			mode.readConfig(config)
+		config.SetPath("/")
+
+	def __writeModeConfig(self, config):
+		for mode in self.modes:
+			config.SetPath("/Modes/" + mode.key)
+			mode.writeConfig(config)
+		config.SetPath("/")
+
 	def __readPathGroup(self, config, group):
 		paths = []
 		config.SetPath(group)
@@ -551,6 +570,7 @@ class GMFrame(MapPanelFrame):
 		if (self.splitter.IsSplit()):
 			self.sashPos = self.splitter.GetSashPosition()
 		config.WriteInt("ProjectSashPos", self.sashPos)
+		self.__writeModeConfig(config)
 		config.Flush()
 
 	def __writePathGroup(self, config, group, paths):

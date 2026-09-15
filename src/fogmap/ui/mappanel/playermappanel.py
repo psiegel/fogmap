@@ -3,6 +3,8 @@ from lxml import etree
 
 from ... import gfx
 
+from .. import board
+
 from .mappanel import MapPanel
 
 
@@ -18,6 +20,11 @@ class PlayerMapPanel(MapPanel):
 		self.mirror = False
 		self.playerPanel = None
 		self.userViewListener = None
+		# Where the GM is pointing, in map pixels, and what colour to draw the
+		# arrow.  None whenever the GM is not in Draw mode or has taken the
+		# mouse off the map.
+		self.pointer = None
+		self.pointerColour = wx.Colour(255, 255, 255)
 
 		super(PlayerMapPanel, self).__init__(parent)
 	
@@ -27,6 +34,35 @@ class PlayerMapPanel(MapPanel):
 		self.Bind(wx.EVT_RIGHT_DCLICK, self.onRightDClick)
 		self.Bind(wx.EVT_KEY_DOWN, self.onKeyDown)
 		self.Bind(wx.EVT_KEY_UP, self.onKeyUp)
+
+	def reset(self):
+		super(PlayerMapPanel, self).reset()
+		# The arrow points at a map pixel, which means nothing over the map
+		# coming in.
+		self.pointer = None
+
+	def setPointer(self, mapPt, colour=None):
+		"""Show the GM's cursor to the players at mapPt, or nowhere at all if
+		   it is None.
+
+		   Only the two boxes involved are invalidated.  The cursor moves with
+		   every mouse event the GM generates, and repainting the whole player
+		   view that often - a full-screen window, often a large one - would
+		   cost more than everything else this application does put together."""
+		if (colour is not None):
+			colour = wx.Colour(colour)
+		if ((mapPt == self.pointer) and
+			((colour is None) or (colour == self.pointerColour))):
+			return
+		old = self.pointer
+		self.pointer = mapPt
+		if (colour is not None):
+			self.pointerColour = colour
+		if (self.mapImg is None):
+			return
+		for pt in (old, mapPt):
+			if (pt is not None):
+				self.RefreshRect(board.pointerRect(self._mapToScreen(pt)))
 
 	def setUserViewListener(self, listener):
 		"""Called when the GM moves this view, so the document can be flagged as
@@ -232,6 +268,21 @@ class PlayerMapPanel(MapPanel):
 	def onKeyUp(self, evt):
 		if (evt.ControlDown() and (evt.GetUnicodeKey() == 70)):
 			self.toggleMirror()
+
+	def _draw(self, gc, box):
+		super(PlayerMapPanel, self)._draw(gc, box)
+		self._drawPointer(gc)
+
+	def _drawPointer(self, gc):
+		"""Drawn last, over everything, and in this panel's own coordinates:
+		   the arrow is a fixed size on screen however far the players' view
+		   happens to be zoomed, which is what makes it usable to point with."""
+		if ((self.pointer is None) or (self.mapImg is None)):
+			return
+		board.drawPointer(gc, self._mapToScreen(self.pointer), self.pointerColour)
+
+	def _applyMapTransform(self, gc):
+		self._offsetAndScale(gc)
 
 	def _offsetAndScale(self, gc):
 		bsz = self.mapImg.GetSize()

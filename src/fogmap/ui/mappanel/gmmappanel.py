@@ -46,6 +46,7 @@ class GMMapPanel(MapPanel):
 		self.Bind(wx.EVT_MOUSEWHEEL, self.onWheel)
 		self.Bind(wx.EVT_MOTION, self.onMouseMove)
 		self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self.onCaptureLost)
+		self.Bind(wx.EVT_LEAVE_WINDOW, self.onMouseLeave)
 		
 	def setScroller(self, scroller):
 		"""The scrolled window this panel sits inside.  Zooming changes the
@@ -335,6 +336,16 @@ class GMMapPanel(MapPanel):
 		self.dragMode.onMouseUp(evt, self._clientToMap(evt.GetPosition()))
 		self.dragMode = None
 
+	def onMouseLeave(self, evt):
+		"""The mouse has gone off the map.  A mode showing where it is - the
+		   brush outline, the pointer the players are watching - has nothing to
+		   show any more.  Never mid-drag: a drag that has wandered off the
+		   edge of the panel is still a drag."""
+		evt.Skip()
+		mode = self.currentMode()
+		if ((mode != None) and (self.dragMode is None)):
+			mode.onMouseLeave()
+
 	def onCaptureLost(self, evt):
 		self.dragMode = None
 		for mode in self._allModes():
@@ -392,6 +403,9 @@ class GMMapPanel(MapPanel):
 	def _applyZoom(self, gc):
 		if (self.scale != 1.0):
 			gc.Scale(self.scale, self.scale)
+
+	def _applyMapTransform(self, gc):
+		self._applyZoom(gc)
 
 	def _alpha(self, mask, box=None):
 		return gfx.gmAlpha(mask, box)
