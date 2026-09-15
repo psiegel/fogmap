@@ -37,7 +37,7 @@ class FogMapApp(wx.App):
 		self.__setDockIcon()
 
 		self.playerFrame = ui.PlayerFrame(None, -1, "Player View", size=(800, 600))
-		self.playerFrame.Show(True)
+		self.__showPlayerScreen(self.playerFrame)
 
 		self.gmFrame = ui.GMFrame(None, -1, "GM View", size=(800, 600))
 		self.gmFrame.Show(True)
@@ -46,6 +46,22 @@ class FogMapApp(wx.App):
 		self.playerFrame.panel.setUserViewListener(self.onPlayerViewChanged)
 
 		return True
+
+	def __showPlayerScreen(self, frame):
+		display = self.__playerDisplay()
+		if (display is not None):
+			frame.SetSize(display.GetClientArea())
+		frame.Show(True)
+		if (display is not None):
+			frame.Maximize(True)
+
+	def __playerDisplay(self):
+		"""The first display that is not the primary one, or None."""
+		for i in range(wx.Display.GetCount()):
+			display = wx.Display(i)
+			if (not display.IsPrimary()):
+				return display
+		return None
 
 	def __setDockIcon(self):
 		"""On the Mac the icon belongs to the process rather than to any window,
