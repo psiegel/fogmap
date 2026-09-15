@@ -120,7 +120,10 @@ class DrawMode(InputMode):
 		data.SetChooseFull(True)
 		dlg = wx.ColourDialog(self.frame, data)
 		if (dlg.ShowModal() == wx.ID_OK):
-			self.colour = dlg.GetColourData().GetColour()
+			# The dialog's colour dies with the dialog, so keep a copy of the
+			# components rather than a reference into wx's own data.
+			picked = dlg.GetColourData().GetColour()
+			self.colour = wx.Colour(picked.Red(), picked.Green(), picked.Blue())
 			self.colourButton.SetBitmap(self.__swatch())
 			# The arrow the players are watching is drawn in the pen's colour,
 			# so it changes under them as soon as the pen does.
