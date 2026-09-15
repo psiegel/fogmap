@@ -4,6 +4,7 @@ import wx
 import wx.lib.scrolledpanel as scrolled
 
 from .. import data
+from .. import resources
 
 from . import mappanel
 from . import projecttree
@@ -12,6 +13,11 @@ from . import tools
 class MapPanelFrame(wx.Frame):	
 	def __init__(self, *args, **kwargs):	
 		super(MapPanelFrame, self).__init__(*args, **kwargs)
+		icons = resources.appIcons()
+		if (icons is not None):
+			# No effect on the Mac, which has no per-window icons; the Dock tile
+			# is set once for the whole app instead.  See FogMapApp.OnInit.
+			self.SetIcons(icons)
 		self.Bind(wx.EVT_CLOSE, self.onClose)		
 
 	def setPanel(self, mapPanel):

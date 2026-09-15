@@ -23,3 +23,6 @@ version = {attr = "fogmap.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"fogmap.resources" = ["*.png", "*.ico", "*.icns"]

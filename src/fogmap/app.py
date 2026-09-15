@@ -1,9 +1,11 @@
 import argparse
 import os
 import wx
+import wx.adv
 from lxml import etree
 
 from . import data
+from . import resources
 from . import ui
 from . import __version__
 
@@ -22,6 +24,7 @@ class FogMapApp(wx.App):
 	doc = None
 	lastSavePath = None
 	dirtyShown = False
+	dockIcon = None
 
 	def __init__(self, file=None, project=None):
 		super(FogMapApp, self).__init__(0)
@@ -31,6 +34,8 @@ class FogMapApp(wx.App):
 			self.activateDocument(file)
 
 	def OnInit(self):
+		self.__setDockIcon()
+
 		self.playerFrame = ui.PlayerFrame(None, -1, "Player View", size=(800, 600))
 		self.playerFrame.Show(True)
 
@@ -41,6 +46,27 @@ class FogMapApp(wx.App):
 		self.playerFrame.panel.setUserViewListener(self.onPlayerViewChanged)
 
 		return True
+
+	def __setDockIcon(self):
+		"""On the Mac the icon belongs to the process rather than to any window,
+		   so the frames' own SetIcons does nothing and the Dock shows a generic
+		   Python icon.  This replaces it for the life of the run; a Finder icon
+		   needs a real .app bundle built around resources/fogmap.icns."""
+		if (wx.Platform != "__WXMAC__"):
+			return
+		icon = resources.largestIcon()
+		if (icon is None):
+			return
+		# Held onto: collecting the TaskBarIcon takes the Dock tile with it.
+		self.dockIcon = wx.adv.TaskBarIcon(wx.adv.TBI_DOCK)
+		self.dockIcon.SetIcon(icon)
+
+	def OnExit(self):
+		# wx complains if a TaskBarIcon outlives the app.
+		if (self.dockIcon is not None):
+			self.dockIcon.Destroy()
+			self.dockIcon = None
+		return super(FogMapApp, self).OnExit()
 
 	# --- projects -------------------------------------------------------------
 

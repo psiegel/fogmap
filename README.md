@@ -17,8 +17,15 @@ src/fogmap/            the application
   gfx.py  hex.py         image helpers and hex geometry
   data/                  maps, masks, brushes, projects - no UI
   ui/                    frames, panels, the project tree, the toolbar
+  resources/             the app icon, shipped inside the package
 tests/data/            a sample map and its image
 ```
+
+The app icon is `src/fogmap/resources/fogmap.png`, loaded by `fogmap.resources`
+and set on both windows. On Windows and Linux that is the title-bar and taskbar
+icon; macOS has no per-window icons, so the same image is put on the Dock tile
+instead, for the life of the run. A Finder icon needs a bundled `.app` built
+around a `.icns` - see `src/fogmap/resources/README.md`.
 
 ## Setup
 
