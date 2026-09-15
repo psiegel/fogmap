@@ -1,7 +1,7 @@
 import math
 
 import wx
-import hex
+from .. import hex
 
 
 class Grid(object):

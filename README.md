@@ -7,6 +7,19 @@ A fog-of-war map tool for tabletop games. It opens two windows:
 - **GM View** — the full map at half brightness, where the GM paints areas to reveal
   or re-hide with the mouse, at whatever zoom suits the map.
 
+## Layout
+
+```
+pyproject.toml         packaging and dependencies
+requirements.txt       pinned versions of those dependencies
+src/fogmap/            the application
+  app.py                 the wx.App: holds the project and the open document
+  gfx.py  hex.py         image helpers and hex geometry
+  data/                  maps, masks, brushes, projects - no UI
+  ui/                    frames, panels, the project tree, the toolbar
+tests/data/            a sample map and its image
+```
+
 ## Setup
 
 Requires Python 3.9+ (developed against 3.11).
@@ -14,17 +27,21 @@ Requires Python 3.9+ (developed against 3.11).
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # pinned versions
+pip install -e .                  # then fogmap itself, editable
 ```
 
 ## Running
 
 ```sh
 source .venv/bin/activate
-python app.py                # start empty; use File > New to pick a map image
-python app.py -f test.map    # open an existing .map file
-python app.py -p ~/campaign  # open a folder of maps as a project
+fogmap                          # start empty; use File > New to pick a map image
+fogmap -f tests/data/test.map   # open an existing .map file
+fogmap -p ~/campaign            # open a folder of maps as a project
 ```
+
+`python -m fogmap` does the same thing and takes the same options, for when you
+would rather not install the console script.
 
 ## Projects
 

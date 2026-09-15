@@ -1,6 +1,6 @@
 import wx
 
-from data import doc
+from ..data import doc
 
 class GridDialog(wx.Dialog):
 	def __init__(self, grid, *args, **kwargs):

@@ -4,7 +4,7 @@ import os
 import zlib
 from lxml import etree
 
-import gfx
+from .. import gfx
 
 # Mask payloads are runs of identical bytes almost end to end, so deflating
 # them before base64 turns what used to be the whole weight of a map file into

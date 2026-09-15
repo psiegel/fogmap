@@ -3,7 +3,7 @@ import copy
 import wx
 import wx.lib.scrolledpanel as scrolled
 
-import data
+from .. import data
 
 from . import mappanel
 from . import projecttree

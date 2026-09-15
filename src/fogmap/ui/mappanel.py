@@ -4,8 +4,8 @@ import wx
 import numpy as np
 from lxml import etree
 
-import gfx
-import data
+from .. import gfx
+from .. import data
 
 from . import grid
 from . import viewport

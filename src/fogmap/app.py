@@ -1,14 +1,14 @@
-#!/usr/bin/env python3
 import argparse
 import os
 import wx
 from lxml import etree
 
-import data
-import ui
+from . import data
+from . import ui
+from . import __version__
 
 
-class ImageTestApp(wx.App):
+class FogMapApp(wx.App):
 	"""Holds the project and the one document currently being looked at.
 
 	   Everything else in the project stays on disk: a map with unsaved changes
@@ -24,7 +24,7 @@ class ImageTestApp(wx.App):
 	dirtyShown = False
 
 	def __init__(self, file=None, project=None):
-		super(ImageTestApp, self).__init__(0)
+		super(FogMapApp, self).__init__(0)
 		if (project is not None):
 			self.openProject(project)
 		if (file is not None):
@@ -364,12 +364,13 @@ class ImageTestApp(wx.App):
 		dlg.Destroy()
 
 
-if __name__ == '__main__':
+def main(argv=None):
 	parser = argparse.ArgumentParser(prog='fogmap', description='Fog of war map tool.')
-	parser.add_argument('--version', action='version', version='%(prog)s 1.0')
+	parser.add_argument('--version', action='version', version='%(prog)s ' + __version__)
 	parser.add_argument('-f', '--file', dest='file', default=None, metavar='FILE', help='Map file to open')
 	parser.add_argument('-p', '--project', dest='project', default=None, metavar='DIR', help='Project folder to open')
-	options = parser.parse_args()
+	options = parser.parse_args(argv)
 
-	app = ImageTestApp(options.file, options.project)
+	app = FogMapApp(options.file, options.project)
 	app.MainLoop()
+	return 0

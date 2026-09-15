@@ -7,7 +7,7 @@ nesting itself is worked out by Project.scan(); this just draws it.
 import os
 import wx
 
-import data
+from .. import data
 
 
 class ProjectTreePanel(wx.Panel):

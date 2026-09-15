@@ -1,6 +1,6 @@
 from PIL import ImageDraw
 
-import hex
+from .. import hex
 
 def makeBoxCenteredOnPoint(ptx, pty, boxw, boxh):
 	x = ptx - boxw // 2
