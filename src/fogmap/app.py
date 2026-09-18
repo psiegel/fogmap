@@ -227,9 +227,11 @@ class FogMapApp(wx.App):
 			self.whiteboard.clear()
 		self.doc = doc
 		self.dirtyShown = False
+		# Before the panels are handed the map, so that a document which fails
+		# to draw is still one __releaseDocument can take apart again.
+		doc.map.addUpdateListener(self.noteDirty)
 		self.playerFrame.setMap(doc.map)
 		self.gmFrame.setMap(doc.map)
-		doc.map.addUpdateListener(self.noteDirty)
 		if ((self.project is not None) and (doc.path is not None)):
 			# The document now owns whatever was outstanding for this file.  Its
 			# temp copy is left on disk until the next flush replaces it, so a

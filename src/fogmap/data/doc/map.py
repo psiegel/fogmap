@@ -15,7 +15,7 @@ class Map(object):
 		self.mapImgPath = mapImgPath
 		# One bit per pixel; the alpha the two windows draw with is derived
 		# from it.  See gfx.playerAlpha / gfx.gmAlpha.
-		self.mask = mask
+		self.mask = Map.conformMask(mask, mapImg)
 
 		# True when this came out of a file still holding the old two-mask
 		# format, which makes it unsaved from the moment it is opened so that
@@ -55,6 +55,22 @@ class Map(object):
 		mapImg = Image.open(imgPath).convert("RGBA")
 		mask = gfx.createMask(mapImg.size[0], mapImg.size[1], True)
 		return Map(mapImg, imgPath, mask, editable=False)
+
+	@staticmethod
+	def conformMask(mask, mapImg):
+		"""The mask, stretched to the image it fogs if it does not already fit.
+
+		   Everything downstream assumes one mask pixel per image pixel: the
+		   panels hand the derived alpha straight to wx, which rejects a buffer
+		   of the wrong length outright.  A mask arrives the wrong size when the
+		   image behind it is swapped for one at another resolution, and in map
+		   files whose image has been replaced on disk since they were saved.
+
+		   Nearest neighbour, because a mask pixel is either revealed or hidden
+		   and anything in between is not a value it can hold."""
+		if ((mask is None) or (mapImg is None) or (mask.size == mapImg.size)):
+			return mask
+		return mask.resize(mapImg.size, Image.NEAREST)
 
 	@staticmethod
 	def resolveImagePath(imgPath, baseDir):
@@ -111,6 +127,9 @@ class Map(object):
 	def replaceImage(self, path):
 		self.mapImg = Image.open(path).convert("RGBA")
 		self.mapImgPath = path
+		# An image of another size leaves the fog the wrong shape for the map it
+		# now covers; what has been explored keeps its place on the new image.
+		self.mask = Map.conformMask(self.mask, self.mapImg)
 		self.__contentChanged()
 
 	def write(self, root, baseDir=None):
@@ -143,7 +162,11 @@ class Map(object):
 		self.updateListeners.append(listener)
 
 	def removeUpdateListener(self, listener):
-		self.updateListeners.remove(listener)
+		# Quietly ignores one that is not registered: removal happens on the
+		# teardown paths, where raising would leave the thing being torn down
+		# half attached and the next attempt in the same state.
+		if (listener in self.updateListeners):
+			self.updateListeners.remove(listener)
 
 	def __fireUpdateListeners(self, rect=None):
 		"""rect is the box a brush dab touched, or None when the change was
