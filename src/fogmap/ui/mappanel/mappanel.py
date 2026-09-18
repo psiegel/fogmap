@@ -62,8 +62,19 @@ class MapPanel(wx.Panel):
 
 	def setPlayerPanel(self, panel):
 		self.playerPanel = panel
-		self.Bind(wx.EVT_KEY_DOWN, self.playerPanel.onKeyDown)
-		self.Bind(wx.EVT_KEY_UP, self.playerPanel.onKeyUp)
+		# Bound to this panel's own handlers rather than straight to the player
+		# view's, so that a panel with something of its own to do with a key can
+		# do it on the way past.
+		self.Bind(wx.EVT_KEY_DOWN, self.onKeyDown)
+		self.Bind(wx.EVT_KEY_UP, self.onKeyUp)
+
+	def onKeyDown(self, evt):
+		"""Keys pressed over this window drive the player view, so that the GM
+		   can zoom and pan what the players see without leaving their own."""
+		self.playerPanel.onKeyDown(evt)
+
+	def onKeyUp(self, evt):
+		self.playerPanel.onKeyUp(evt)
 
 	def setViewListener(self, listener):
 		"""Called whenever this panel's scale, offset or size changes."""

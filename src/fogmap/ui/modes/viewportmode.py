@@ -11,13 +11,22 @@ class ViewportMode(InputMode):
 
 	   The rectangle is never stored anywhere: it is derived from the player
 	   panel's own zoom and pan every time it is drawn, and a drag runs that
-	   derivation backwards.  See ui/viewport.py."""
+	   derivation backwards.  See ui/viewport.py.
+
+	   This is also the mode Alt borrows: holding it hands this one the mouse
+	   whatever the toolbar is set to, so the players' view can be moved without
+	   putting the brush or the pen down first."""
 
 	key = "viewport"
 	label = "Viewport"
 	icon = "mode-viewport"
 	hotkey = "CTRL+SHIFT+2"
 	help = "Move and resize the area the players can see."
+
+	# This mode is the overlay, so it shows one whatever the GM's own
+	# show-the-viewport setting says, and draws it itself rather than leaving
+	# the panel to draw a faint one underneath.
+	drawsViewport = True
 
 	TOLERANCE = 6
 	HANDLE_SIZE = 9
@@ -49,12 +58,18 @@ class ViewportMode(InputMode):
 		"""Nothing to frame without a window to frame it for."""
 		return self.playerPanel is not None
 
+	def appliesTo(self, evt):
+		"""Alt borrows this mode from wherever the toolbar happens to be, and
+		   gives it straight back when the key comes up.  With no player window
+		   there is nothing to frame, so the key does nothing at all."""
+		return evt.AltDown() and self.isAvailable()
+
 	# --- the rectangle --------------------------------------------------------
 
 	def rect(self):
 		"""The player viewport in map pixels, or None if there is nothing to show."""
-		player = self.playerPanel
-		return player.getViewportRect() if (player is not None) else None
+		panel = self.panel
+		return panel.viewportRect() if (panel is not None) else None
 
 	def tolerance(self):
 		"""The grab tolerance is a distance on screen, so how much of the map
@@ -74,9 +89,6 @@ class ViewportMode(InputMode):
 
 	def reset(self):
 		self.endDrag()
-
-	def onPlayerViewChanged(self):
-		self.panel.Refresh(False)
 
 	def onCaptureLost(self):
 		self.handle = None
@@ -122,12 +134,21 @@ class ViewportMode(InputMode):
 			else:
 				self.endDrag()
 			return True
-		if (self.rect() is None):
-			self.panel.setModeCursor(None)
-			return True
-		# The overlay owns the mouse: edges and corners resize, the rest grabs.
-		self.panel.setModeCursor(viewport.CURSORS.get(self.handleAt(pos), wx.CURSOR_HAND))
+		self.panel.setModeCursor(self.cursorAt(pos))
 		return True
+
+	def onMouseAt(self, pos):
+		"""Alt has just handed the mouse over.  The overlay it brings up can be
+		   grabbed straight away, so the cursor says so without waiting for the
+		   mouse to be moved first."""
+		self.panel.setModeCursor(self.cursorAt(pos))
+
+	def cursorAt(self, pos):
+		"""The overlay owns the mouse: edges and corners resize, the rest grabs.
+		   Nothing to grab, and it is the plain arrow."""
+		if ((pos is None) or (self.rect() is None)):
+			return None
+		return viewport.CURSORS.get(self.handleAt(pos), wx.CURSOR_HAND)
 
 	def drag(self, pos):
 		player = self.playerPanel

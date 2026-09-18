@@ -141,14 +141,18 @@ mouse rests on it, and the menus spell all of it out in full.
 | **Draw** | Draws on the whiteboard layer, and points at the map | Colour, size, fade and **Clear** |
 
 `Ctrl+Shift+1`, `Ctrl+Shift+2` and `Ctrl+Shift+3` pick them, as do
-**View > Fog Mode**, **View > Viewport Mode** and **View > Draw Mode**. `Ctrl+B`, which used to switch the player viewport
-outline on and off, still works: it jumps into Viewport mode, and back out to
-Fog if that is already where you are.
+**View > Fog Mode**, **View > Viewport Mode** and **View > Draw Mode**.
+
+Whichever mode is picked, **View > Show Player Viewport** (`Ctrl+B`) outlines
+what the players can currently see - see [Seeing where the players are
+looking](#seeing-where-the-players-are-looking).
 
 The mode is saved with the map, so a map comes back the way it was left.
 
-Holding **Alt** borrows the mouse for the Player View whichever mode is
-selected, and hands it back when the key comes up.
+Holding **Alt** drops into Viewport mode whichever mode is selected: the overlay
+comes up with the key and takes the mouse, so the players' view can be moved and
+resized without putting the brush or the pen down, and the mode on the toolbar
+gets the mouse back the moment the key comes up.
 
 **GM View**
 
@@ -171,11 +175,10 @@ selected, and hands it back when the key comes up.
 | **Clear** button | Wipe the whole layer at once |
 | **Any mode** | |
 | `Ctrl+Shift+1` / `Ctrl+Shift+2` / `Ctrl+Shift+3` | Fog / Viewport / Draw mode |
-| `Ctrl+B` | Into Viewport mode, or back out to Fog |
-| **Hold Alt** | Drive the Player View with the mouse instead |
-| Alt + drag (either button) | Pan the Player View |
-| Alt + wheel | Zoom the Player View about the map point under the cursor |
-| Alt + right double-click | Recentre the Player View |
+| `Ctrl+B` | Outline what the players can see, or take the outline off again |
+| **Hold Alt** | Viewport mode for as long as the key is down |
+| Alt + drag (either button) | Move the players' visible area |
+| Alt + drag an edge / corner | Resize the players' visible area |
 | `Ctrl+0` | Zoom the Player View out to the whole map |
 | `Ctrl+=` / `Ctrl+-` | Zoom the GM map in or out one level |
 | `Ctrl+1` / `Ctrl+9` | GM map at 100% / zoomed out until all of it fits |
@@ -202,12 +205,11 @@ whole hexes. It is only selectable while a grid is active.
 | Double-click | Toggle full screen |
 
 The GM window forwards key presses to the Player View, so the GM can zoom and pan
-what the players see without leaving their own window. Holding **Alt** forwards the
-mouse as well, whatever mode the toolbar is in: the selected mode lets go of the
-mouse for as long as the key is down, the cursor turns into a hand, and dragging or
-scrolling over the GM map pans and zooms what the players are looking at. Alt + wheel
-zooms the Player View around whichever map feature the GM is pointing at, whatever
-zoom the GM's own map happens to be at.
+what the players see without leaving their own window. The mouse does it a
+different way: holding **Alt** over the GM map borrows Viewport mode for as long
+as the key is down, whatever the toolbar is set to, and dragging the rectangle
+that comes up moves and resizes what the players are looking at. See
+[Viewport mode](#viewport-mode).
 
 ## Zooming the GM map
 
@@ -231,16 +233,34 @@ with grabbable handles however far the map is zoomed out.
 The level is saved with the map, so a map comes back at the zoom you left it at -
 which, like moving the Player View, counts as a change worth saving.
 
+## Seeing where the players are looking
+
+**View > Show Player Viewport** (`Ctrl+B`) outlines the part of the map the
+players can currently see, whatever the mouse is doing. In Fog and Draw mode it
+is a faint cyan rectangle and nothing more: there is nothing to grab and no
+cursor over it, because the mouse still belongs to the brush or the pen. It is
+there to be glanced at - to see what is on their screen while painting fog just
+outside it. Hold **Alt** to take hold of it without leaving the mode.
+
+In **Viewport mode** the same rectangle is the mode, so it is always shown, drawn
+solid and with handles, and the menu item is ticked and greyed out. Everywhere
+else the outline is the GM's to switch on and off, and it stays as it was set
+while switching between modes.
+
+Whether it is showing is saved with the map, alongside the mode and the zoom.
+
 ## Viewport mode
 
-Picking **Viewport** on the toolbar, **View > Viewport Mode**, `Ctrl+Shift+2` and
-`Ctrl+B` all do the same thing and stay in step with each other. In this mode the
-GM map is overlaid with a cyan rectangle marking exactly what the players can
-currently see, with a handle on each corner and edge.
+Picking **Viewport** on the toolbar, **View > Viewport Mode** and `Ctrl+Shift+2`
+all do the same thing and stay in step with each other. In this mode the GM map is
+overlaid with a cyan rectangle marking exactly what the players can currently see,
+with a handle on each corner and edge. Holding **Alt** borrows the same mode from
+whichever one the toolbar is in - see [Alt borrows it](#alt-borrows-it) below.
 
 The rectangle is never stored anywhere. It is derived from the Player View's own
 zoom and pan every time it is drawn, so it cannot fall out of sync with what the
-players are looking at, and it updates live as the view moves.
+players are looking at, and it updates live as the view moves. That is as true of
+the faint outline the other modes show as of the one here.
 
 While it is on, the overlay owns the mouse and **there is no brush** - the brush
 controls belong to Fog mode and are not on the toolbar at all, so no click can
@@ -259,6 +279,23 @@ zoom limits as the mouse wheel, so a handle cannot be dragged past them.
 
 Switch back to Fog mode to get the brush back. Maps open in Fog mode unless the
 file says otherwise, and the mode is saved with the map.
+
+### Alt borrows it
+
+Framing the players' view is something the GM does constantly, and usually in the
+middle of doing something else - so it does not need the toolbar. Hold **Alt**
+over the GM map in any mode and that mode lets go of the mouse: the rectangle
+comes up solid with its handles, the cursor becomes a hand or a resize arrow, and
+dragging moves and resizes exactly as it does in Viewport mode. Let the key go and
+the brush or the pen has the mouse back, with the toolbar never having moved.
+
+The mode underneath goes quiet while the key is held rather than disappearing:
+Fog mode's brush outline and the arrow Draw mode puts on the players' screen both
+stand for where the mouse would go next, so both step aside until Alt is let go. A
+drag belongs to whoever started it, so releasing the key part-way through a resize
+finishes the resize rather than abandoning it.
+
+With no Player View there is nothing to frame, and the key does nothing at all.
 
 ## Draw mode
 
@@ -304,14 +341,14 @@ point of it: it is for pointing at things during a session, not for annotating a
 ## File format
 
 A `.map` file is XML holding a *path* to the map image plus the reveal mask,
-plus the Player View's zoom and pan and the GM's own zoom and input mode.
-The image itself is not embedded, and neither is anything drawn on the
-whiteboard layer - see Draw mode.
+plus the Player View's zoom and pan, the GM's own zoom and input mode, and
+whether the player-viewport outline is showing. The image itself is not
+embedded, and neither is anything drawn on the whiteboard layer - see Draw mode.
 
-Files written before the player viewport became a mode store it instead as a
-`<viewport visible="...">` flag beside the zoom. Those are still read - the flag
-becomes Viewport mode or Fog mode - and are written out in the new shape the
-next time that map is saved.
+The `<viewport visible="...">` flag beside the zoom predates modes entirely, and
+means in a file written today exactly what it meant in one written before them:
+whether that outline is over the map. Files from before modes simply have no
+`<mode>` beside it, and open in Fog mode.
 
 The mask is one bit per pixel — set where the map shows through — packed,
 deflated and base64'd. The two alphas the app actually draws with (transparent

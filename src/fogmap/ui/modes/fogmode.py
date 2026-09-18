@@ -132,6 +132,16 @@ class FogMode(InputMode):
 	def onZoomChanged(self):
 		self.brushDrawnAt = None
 
+	def onMouseAt(self, pos):
+		"""Alt has handed the mouse back.  The brush cursor is about to be drawn
+		   again, and without this it would come back where it was when the key
+		   went down and sit there until the mouse was moved.
+
+		   A mouse off the map leaves it where it is, the same as walking off the
+		   edge of the panel does."""
+		if (pos is not None):
+			self.mouse = pos
+
 	def onGridChanged(self):
 		if (isinstance(self.brush, data.GridBrush)):
 			self.brush.setGridSize(self.panel.map.grid.size)

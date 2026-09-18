@@ -106,8 +106,22 @@ class InputMode(object):
 	hotkey = None
 	help = ""
 
+	# Whether the mode draws the player viewport itself.  The panel draws a
+	# faint outline of it in every other mode, whenever the GM asks to see one,
+	# and leaves the modes that own it to show their own.
+	drawsViewport = False
+
 	def __init__(self, frame):
 		self.frame = frame
+
+	def appliesTo(self, evt):
+		"""Whether a held key hands this mode the mouse for as long as it is
+		   down, whatever the toolbar says.
+
+		   Only the one mode the panel is given to borrow is ever asked.  Every
+		   other mode is picked from the toolbar and keeps the mouse until it is
+		   picked away from."""
+		return False
 
 	@property
 	def panel(self):
@@ -181,6 +195,17 @@ class InputMode(object):
 		   cursor is pointing at nothing."""
 		pass
 
+	def onMouseAt(self, pos):
+		"""The mouse has just changed hands - Alt taken or given back - and this
+		   mode is the one holding it now.  pos is where the mouse is in map
+		   pixels, or None if it is not over the map at all.
+
+		   A mode that draws anything at the cursor needs this: it has heard
+		   nothing of the mouse for as long as the other mode had it, and would
+		   otherwise come back showing where the cursor was when the key went
+		   down, until it is moved again."""
+		pass
+
 	# --- input ----------------------------------------------------------------
 	# pos is the mouse in map pixels: the panel undoes its own zoom once, before
 	# any of this, rather than in each of the things the mouse can be driving.
@@ -209,6 +234,7 @@ class InputMode(object):
 		"""Whatever the mode overlays on the map.
 
 		   active is False when something else has the mouse for the moment -
-		   Alt driving the player view - so that a mode can go on showing what
-		   it is about without showing a cursor that would do nothing."""
+		   Alt lending it to the viewport overlay - so that a mode can go on
+		   showing what it is about without showing a cursor that would do
+		   nothing."""
 		pass

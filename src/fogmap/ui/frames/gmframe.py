@@ -24,7 +24,10 @@ class GMFrame(MapPanelFrame):
 		# toolbar is laid out around the controls each one brings with it.
 		# They reach the panel through the frame, so it can come later.
 		self.modes = [cls(self) for cls in modes.MODES]
-		self.altMode = modes.PlayerDriveMode(self)
+		# The mode Alt borrows the mouse for.  The very one the switcher offers
+		# rather than a second of its own, so that holding the key gives the
+		# overlay exactly the mouse it has when the toolbar is set to it.
+		self.altMode = self.modeOfType(modes.ViewportMode)
 		# Before the toolbar, which is laid out around controls that have to
 		# start out showing whatever the GM last set them to.
 		self.__readModeConfig()
@@ -191,6 +194,11 @@ class GMFrame(MapPanelFrame):
 					  lambda evt, mode=mode: self.setMode(mode), id=menuId)
 			self.Bind(wx.EVT_UPDATE_UI, self.onModeMenuUpdate, id=menuId)
 		viewMenu.AppendSeparator()
+		viewMenu.Append(1007, "Show Player &Viewport\tCTRL+B",
+						"Outline what the players can see on the GM's map.",
+						wx.ITEM_CHECK)
+		self.Bind(wx.EVT_MENU, self.onToggleViewport, id=1007)
+		self.Bind(wx.EVT_UPDATE_UI, self.onShowViewportUpdate, id=1007)
 		viewMenu.Append(1002, "Fit Player View to Map\tCTRL+0",
 						"Zoom the player view out until the whole map fits.")
 		self.Bind(wx.EVT_MENU, self.onFitPlayerView, id=1002)
@@ -212,13 +220,6 @@ class GMFrame(MapPanelFrame):
 		self.menuBar.Append(viewMenu, "View")
 
 		self.SetMenuBar(self.menuBar)
-
-		# CTRL+B used to toggle the player viewport overlay, from before it
-		# became a mode of its own.  Kept working, as a jump into that mode and
-		# back out again; no menu item claims it, so it lives in a table here.
-		self.Bind(wx.EVT_MENU, self.onToggleViewportMode, id=GMFrame.TOGGLE_VIEWPORT_ID)
-		self.SetAcceleratorTable(wx.AcceleratorTable([
-			wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("B"), GMFrame.TOGGLE_VIEWPORT_ID)]))
 
 	def __createToolbar(self):
 		"""Mode first, then whatever that mode brings with it, then the GM's own
@@ -456,14 +457,21 @@ class GMFrame(MapPanelFrame):
 
 	# --- modes ------------------------------------------------------------------
 
-	# Mode menu ids, and the id CTRL+B carries.  Well clear of 1001-1006, and
-	# of the 301+ and 401+ ranges the two recent menus use.
+	# Mode menu ids.  Well clear of 1001-1007, and of the 301+ and 401+ ranges
+	# the two recent menus use.
 	FIRST_MODE_ID = 1010
-	TOGGLE_VIEWPORT_ID = 1009
 
 	# The switcher's own ids, one per mode, kept apart from the menu's so that
 	# a tool and its menu item can be enabled and checked independently.
 	FIRST_MODE_TOOL_ID = 1030
+
+	def modeOfType(self, cls):
+		"""The one instance of a mode class, for the code that wants a
+		   particular mode rather than whichever one the GM picked."""
+		for mode in self.modes:
+			if (isinstance(mode, cls)):
+				return mode
+		return None
 
 	def setMode(self, mode):
 		if (self.panel != None):
@@ -480,11 +488,22 @@ class GMFrame(MapPanelFrame):
 		evt.Enable(mode.isAvailable())
 		evt.Check((self.panel != None) and (self.panel.mode is mode))
 
-	def onToggleViewportMode(self, evt):
-		"""CTRL+B, which used to switch the overlay on and off: into the
-		   viewport mode, or back to the main one if that is where we are."""
-		mode = self.panel.modeByKey(modes.ViewportMode.key)
-		self.setMode(self.modes[0] if (self.panel.mode is mode) else mode)
+	# --- the player viewport --------------------------------------------------
+
+	def onToggleViewport(self, evt):
+		"""CTRL+B: show or hide the outline of what the players can see.  It
+		   belongs to the window rather than to a mode, so it stays as it was
+		   set across switching between them."""
+		if (self.panel != None):
+			self.panel.setShowViewport(evt.IsChecked())
+
+	def onShowViewportUpdate(self, evt):
+		"""Checked whenever an outline is on the map - but greyed out in the
+		   mode that is the outline, where there is nothing to decide."""
+		panel = self.panel
+		evt.Enable((panel != None) and panel.canShowViewport() and
+				   (not panel.ownsViewport()))
+		evt.Check((panel != None) and panel.viewportShown())
 
 	def updateControlState(self):
 		"""Keep the toolbar in step however the mode got changed - the

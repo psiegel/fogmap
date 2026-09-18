@@ -261,6 +261,15 @@ class DrawMode(InputMode):
 		self.__refreshRing(force=True)
 		self.ringDrawnAt = None
 
+	def onMouseAt(self, pos):
+		"""Alt has handed the mouse back, and the nib and the players' arrow are
+		   about to come back with it.  They stand for where the pen would go
+		   next, so they come back where the mouse is now rather than where it
+		   was when the key went down."""
+		self.overMap = (pos is not None)
+		if (pos is not None):
+			self.mouse = pos
+
 	def __endDrag(self):
 		board = self.board()
 		if (self.drawing and (board is not None)):
@@ -362,7 +371,7 @@ class DrawMode(InputMode):
 
 	def draw(self, gc, active):
 		self.ringDrawnAt = None
-		# Holding Alt lends the mouse to the player view, which leaves this
+		# Holding Alt lends the mouse to the viewport overlay, which leaves this
 		# mode drawn but not driving anything.  The nib and the players' arrow
 		# both stand for where the pen would go next, so both go away for as
 		# long as that lasts and come back together with the key.

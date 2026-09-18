@@ -1,5 +1,9 @@
 """The player-viewport overlay drawn on the GM map.
 
+It comes two ways.  Viewport mode draws the whole of it - the rectangle and the
+handles that move and resize it - and every other mode draws a faint outline and
+nothing else, whenever the GM has asked to see where the players are looking.
+
 The rectangle is never stored: it is derived from the player panel's scale and
 offset every time it is drawn, so it cannot drift out of sync with what the
 players are actually looking at.  Dragging a handle runs the derivation
@@ -29,6 +33,12 @@ MIN_WIDTH = 1e-6
 
 OUTLINE = wx.Colour(0, 220, 255)
 SHADOW = wx.Colour(0, 0, 0, 170)
+
+# The same rectangle as shown by the modes that do not own it: dimmed, because
+# it is there to say where the players are looking rather than to be worked on,
+# and the map under it is what those modes are for.
+FAINT_OUTLINE = wx.Colour(0, 220, 255)
+FAINT_SHADOW = wx.Colour(0, 0, 0, 80)
 
 
 def handlePoints(rect):
@@ -113,18 +123,30 @@ def resize(rect, handle, pt, aspect, minWidth=None, maxWidth=None):
 	return (newLeft, newTop, newW, newH)
 
 
-def draw(gc, rect, handleSize):
-	"""Outline the rect with handles, dark-on-light so it reads over any map."""
+def outline(gc, rect, colour, shadow):
+	"""The rectangle itself, dark-on-light so it reads over any map."""
 	x, y, w, h = rect
-
 	gc.SetBrush(wx.TRANSPARENT_BRUSH)
-	gc.SetPen(wx.Pen(SHADOW, 3))
+	gc.SetPen(wx.Pen(shadow, 3))
 	gc.DrawRectangle(x, y, w, h)
-	gc.SetPen(wx.Pen(OUTLINE, 1))
+	gc.SetPen(wx.Pen(colour, 1))
 	gc.DrawRectangle(x, y, w, h)
+
+
+def draw(gc, rect, handleSize):
+	"""The overlay as Viewport mode shows it: the rectangle plus the handles
+	   that move and resize it."""
+	outline(gc, rect, OUTLINE, SHADOW)
 
 	gc.SetBrush(wx.Brush(OUTLINE))
 	gc.SetPen(wx.Pen(SHADOW, 1))
 	half = handleSize / 2.0
 	for pt in handlePoints(rect).values():
 		gc.DrawRectangle(pt[0] - half, pt[1] - half, handleSize, handleSize)
+
+
+def drawFaint(gc, rect):
+	"""The outline as every other mode shows it: no handles, because there is
+	   nothing to take hold of here - the mouse belongs to whatever the GM is
+	   actually doing, and this only says where the players are looking."""
+	outline(gc, rect, FAINT_OUTLINE, FAINT_SHADOW)
