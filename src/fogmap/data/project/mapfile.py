@@ -8,7 +8,12 @@ import os
 
 from lxml import etree
 
-from ..doc import Map, isLegacyMaskNode, readMaskNode, writeMaskNode
+from ..doc import (Map, SecretLayer, isLegacyMaskNode, readMaskNode,
+					writeMaskNode)
+
+# Named here rather than spelled out, so the one place that decides what a
+# secret layer is called on disk stays the class that reads and writes it.
+SECRET_LAYER_TAG = SecretLayer.TAG
 
 
 def readImagePath(path):
@@ -26,6 +31,40 @@ def readImagePath(path):
 	except (etree.XMLSyntaxError, OSError):
 		return None
 	return None
+
+
+def readImagePaths(path):
+	"""Every image a map file refers to: its own, and any secret layers over
+	   it.
+
+	   Read for the same reason and in the same way as readImagePath - the
+	   sidebar needs this for every map in the project, and a map file's mask
+	   data runs to megabytes.  Map.write puts <imagePath> and the secret
+	   layers ahead of the fog mask precisely so that this can stop at the
+	   first <maskData> belonging to the map itself, before any base64 payload
+	   has to be pulled in."""
+	paths = []
+	try:
+		for event, element in etree.iterparse(
+				path, tag=("imagePath", SECRET_LAYER_TAG, "maskData"),
+				events=("start", "end")):
+			if (element.tag == "maskData"):
+				# A layer's own mask sits inside its element and has already
+				# been counted; the map's own is the end of anything useful.
+				parent = element.getparent()
+				if ((parent is None) or (parent.tag != SECRET_LAYER_TAG)):
+					break
+			elif ((element.tag == "imagePath") and (event == "end")):
+				text = element.text
+				if (text is not None):
+					paths.append(text.strip())
+			elif ((element.tag == SECRET_LAYER_TAG) and (event == "start")):
+				layer = element.get("path")
+				if (layer is not None):
+					paths.append(layer)
+	except (etree.XMLSyntaxError, OSError):
+		return paths
+	return paths
 
 
 def isLegacyMapFile(path):

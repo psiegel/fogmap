@@ -8,7 +8,8 @@ file per icon here instead of `icon.png` and `icon@2x.png`.
 They are drawn for this project rather than taken from an icon set, in the shared
 style those sets use - a 24x24 box, a 2px stroke, round caps and joins - so that
 they sit together as one family. Two of them (`mode-fog`, `brush-grid`) are about
-things no general-purpose set has an icon for anyway.
+things no general-purpose set has an icon for anyway; `mode-secret` is a key,
+which is as close as any set gets to "the thing they have not found yet".
 
 ## Adding one
 
@@ -33,8 +34,8 @@ they will unless you reach for another extension.
 
 | Icon | Where |
 | --- | --- |
-| `mode-fog`, `mode-viewport`, `mode-draw` | The mode switcher, at the left of the GM toolbar |
-| `brush-none`, `brush-round`, `brush-square`, `brush-grid` | Fog mode's brush switcher |
+| `mode-fog`, `mode-viewport`, `mode-draw`, `mode-secret` | The mode switcher, at the left of the GM toolbar |
+| `brush-none`, `brush-round`, `brush-square`, `brush-grid` | The brush switcher, in both Fog and Secrets mode |
 | `size` | In front of the brush-size and pen-width sliders |
 | `fade` | In front of Draw mode's fade box |
 | `clear` | Draw mode's wipe-the-layer button |

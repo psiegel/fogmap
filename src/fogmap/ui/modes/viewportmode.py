@@ -20,7 +20,7 @@ class ViewportMode(InputMode):
 	key = "viewport"
 	label = "Viewport"
 	icon = "mode-viewport"
-	hotkey = "CTRL+SHIFT+2"
+	hotkey = "CTRL+SHIFT+4"
 	help = "Move and resize the area the players can see."
 
 	# This mode is the overlay, so it shows one whatever the GM's own

@@ -17,6 +17,21 @@ class GMMapPanel(MapPanel):
 	ZOOM_LEVELS = (0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
 	DEFAULT_ZOOM = 1.0
 
+	# How much of an unrevealed secret is ghosted through the map over it, as
+	# (what a config file calls it, how much).  Off to begin with: a map half
+	# showing its own secrets everywhere reads as noise for the whole of a
+	# session, and the GM can ask to see them whenever they want to look.
+	GHOST_LEVELS = (("off", gfx.GHOST_OFF),
+					("half", gfx.GHOST_HALF),
+					("full", gfx.GHOST_FULL))
+	DEFAULT_GHOST = gfx.GHOST_OFF
+
+	# The key that shows the whole secret layer for as long as it is held,
+	# with Alt.  A letter rather than a second modifier: Shift and Ctrl both
+	# lock the brush to one axis, so either of those would make looking at
+	# the secrets and painting a straight line the same gesture.
+	PEEK_KEY = ord("S")
+
 	def __init__(self, parent):
 		# What the mouse is for.  This panel knows only how to hand an event to
 		# a mode and let one draw over the map; the modes themselves, and the
@@ -42,6 +57,19 @@ class GMMapPanel(MapPanel):
 		self.scale = GMMapPanel.DEFAULT_ZOOM
 		self.scroller = None
 		self.zoomListener = None
+		# How this window shows the secrets on a map.  Both belong to the GM
+		# rather than to any one map - they change nothing a player ever sees
+		# and nothing a file ever holds - so they live in wx.Config beside the
+		# recent-files list and stay put across opening one map after another.
+		self.ghost = GMMapPanel.DEFAULT_GHOST
+		self.secretTint = True
+		# Showing the whole secret layer, found and unfound alike, to see what
+		# is on it.  Held with Alt+S, and a look rather than a change: it
+		# reaches no mask, no player window and no file.  The letter has to be
+		# latched, unlike Alt - a modifier's state rides on every event there
+		# is, and a letter's only on the two that are about the letter.
+		self.peekHeld = False
+		self.peekKeyDown = False
 		
 		super(GMMapPanel, self).__init__(parent)
 
@@ -194,11 +222,15 @@ class GMMapPanel(MapPanel):
 		# Alt swaps which mode has the mouse.  Noticing it here as well as on
 		# the mouse itself is what brings the overlay up with the key, rather
 		# than with the first twitch of the mouse after it.
-		self._trackAlt(evt)
+		if (self.isPeekKey(evt)):
+			self.peekKeyDown = True
+		self._trackModifiers(evt)
 		super(GMMapPanel, self).onKeyDown(evt)
 
 	def onKeyUp(self, evt):
-		self._trackAlt(evt)
+		if (self.isPeekKey(evt)):
+			self.peekKeyDown = False
+		self._trackModifiers(evt)
 		super(GMMapPanel, self).onKeyUp(evt)
 
 	def _onPlayerViewChanged(self):
@@ -293,6 +325,13 @@ class GMMapPanel(MapPanel):
 			self.playerPanel._userViewChanged()
 		self.Refresh()
 
+	def ensureModeAvailable(self):
+		"""Fall back to the default mode if the one we are in no longer
+		   applies - the secret layer it paints has just been taken off the
+		   map, or one has just been put on a map that had none."""
+		if ((self.mode is not None) and (not self.mode.isAvailable())):
+			self.setMode(self.defaultMode(), user=False)
+
 	def currentMode(self):
 		"""Whichever mode the mouse is actually driving: the one holding an
 		   unfinished drag, the Alt override while it is held, or the mode the
@@ -312,11 +351,20 @@ class GMMapPanel(MapPanel):
 			return self.modes
 		return self.modes + (self.altMode,)
 
-	def _trackAlt(self, evt):
-		"""Notice Alt going down or coming up.  It swaps which mode has the
-		   mouse, and with it what is drawn over the map, so the panel has to
-		   be repainted - but never mid-drag, which belongs to whichever mode
-		   started it however the keyboard moves underneath it."""
+	def _trackModifiers(self, evt):
+		"""Notice the modifier keys going down and coming up.
+
+		   Alt swaps which mode has the mouse, and with it what is drawn over
+		   the map, so the panel has to be repainted - but never mid-drag,
+		   which belongs to whichever mode started it however the keyboard
+		   moves underneath it.
+
+		   The peek is a different thing and is tracked whatever else is
+		   happening: it shows the secret layer for as long as Alt+S is held
+		   and takes the mouse away from nobody, so a drag carries on through
+		   it - as does Alt's own borrowing of the viewport, which the extra
+		   letter neither needs nor disturbs."""
+		self._trackPeek(evt)
 		if (self.dragMode != None):
 			return
 		held = (self.altMode != None) and self.altMode.appliesTo(evt)
@@ -357,13 +405,13 @@ class GMMapPanel(MapPanel):
 	# pixels; a button press that a mode claims also hands it the drag.
 
 	def onLeftDown(self, evt):
-		self._trackAlt(evt)
+		self._trackModifiers(evt)
 		mode = self.currentMode()
 		if ((mode != None) and mode.onLeftDown(evt, self._clientToMap(evt.GetPosition()))):
 			self.dragMode = mode
 
 	def onRightDown(self, evt):
-		self._trackAlt(evt)
+		self._trackModifiers(evt)
 		mode = self.currentMode()
 		if ((mode != None) and mode.onRightDown(evt, self._clientToMap(evt.GetPosition()))):
 			self.dragMode = mode
@@ -376,7 +424,7 @@ class GMMapPanel(MapPanel):
 		evt.Skip()
 
 	def onRightDClick(self, evt):
-		self._trackAlt(evt)
+		self._trackModifiers(evt)
 		mode = self.currentMode()
 		if ((mode is None) or
 			(not mode.onRightDClick(evt, self._clientToMap(evt.GetPosition())))):
@@ -389,7 +437,7 @@ class GMMapPanel(MapPanel):
 			self.zoomStep(1 if (evt.GetWheelRotation() > 0) else -1,
 						  evt.GetPosition())
 			return
-		self._trackAlt(evt)
+		self._trackModifiers(evt)
 		mode = self.currentMode()
 		if ((mode is None) or
 			(not mode.onWheel(evt, self._clientToMap(evt.GetPosition())))):
@@ -398,7 +446,7 @@ class GMMapPanel(MapPanel):
 
 	def onMouseMove(self, evt):
 		self._dropStaleDrag(evt)
-		self._trackAlt(evt)
+		self._trackModifiers(evt)
 		mode = self.currentMode()
 		if (mode != None):
 			mode.onMouseMove(evt, self._clientToMap(evt.GetPosition()))
@@ -505,6 +553,67 @@ class GMMapPanel(MapPanel):
 	def _alpha(self, mask, box=None):
 		return gfx.gmAlpha(mask, box)
 
+	def _rgb(self, box=None):
+		return gfx.gmRgb(self.map.mapImg, self.map.secretLayers, box,
+						 self.ghost, self.secretTint, self.peeking())
+
+	# --- secrets --------------------------------------------------------------
+
+	def hasSecrets(self):
+		return (self.map is not None) and self.map.hasSecrets
+
+	def peeking(self):
+		"""Whether the whole secret layer is on show just now."""
+		return self.peekHeld and self.hasSecrets()
+
+	def isPeekKey(self, evt):
+		"""Whether a key event is the peek key itself, Alt aside.
+
+		   Both codes are asked after, because a letter pressed with Alt does
+		   not come through the same way everywhere: the raw code is the usual
+		   answer, and the Unicode one is what a build that has already
+		   applied the modifier gives."""
+		return ((evt.GetKeyCode() == GMMapPanel.PEEK_KEY) or
+				(evt.GetUnicodeKey() in (ord("S"), ord("s"))))
+
+	def _setPeekHeld(self, held):
+		held = bool(held)
+		if (held == self.peekHeld):
+			return
+		self.peekHeld = held
+		# A map with no secrets on it looks exactly the same either way, and
+		# compositing a large one is not free enough to do for nothing.
+		if (self.hasSecrets()):
+			self.refreshComposite()
+
+	def _trackPeek(self, evt):
+		"""Work out whether the peek is on, from any event at all.
+
+		   Alt is read off the event, so letting go of it ends the peek at the
+		   next twitch of the mouse - which is also what recovers a key-up
+		   that never arrived, because the window lost focus while the key was
+		   down or the peek was held across a map being opened."""
+		if (not evt.AltDown()):
+			self.peekKeyDown = False
+		self._setPeekHeld(self.peekKeyDown and evt.AltDown())
+
+	def setGhost(self, ghost):
+		"""How much of an unrevealed secret shows through the map over it."""
+		if (ghost == self.ghost):
+			return
+		self.ghost = ghost
+		self.refreshComposite()
+
+	def setSecretTint(self, tint):
+		"""Whether ground with a secret painted into it is washed with a
+		   colour.  It is the only thing that says a dab landed at all where
+		   the two images are identical, which is almost everywhere."""
+		tint = bool(tint)
+		if (tint == self.secretTint):
+			return
+		self.secretTint = tint
+		self.refreshComposite()
+
 	def _mapRectToClient(self, box):
 		# This panel is scrolled rather than panned, so a box of map pixels
 		# lands at its own position times the zoom.  Rounded outwards, plus a
@@ -538,7 +647,12 @@ class GMMapPanel(MapPanel):
 		# there is no image to resize the panel around yet, and this is not the
 		# GM changing anything.
 		self.scale = GMMapPanel.DEFAULT_ZOOM
-		
+		# Whatever the keyboard was doing over the last map is not something
+		# this one has heard about.  Set flat rather than through the setter,
+		# which would go and composite a map that is on its way out.
+		self.peekHeld = False
+		self.peekKeyDown = False
+
 	def readSettings(self, settings):
 		for child in settings:
 			if (child.tag == "mode"):

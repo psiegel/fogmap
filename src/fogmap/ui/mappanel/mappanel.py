@@ -23,6 +23,11 @@ class MapPanel(wx.Panel):
 		# including the ones that only move the brush cursor.  A brush dab
 		# patches the box it touched rather than throwing this away.
 		self.mapBmp = None
+		# Which pixelVersion of the map the colours in mapImg were composited
+		# from.  None until anything has been, and compared rather than
+		# trusted: a grid change asks for a wholesale rebuild too, and must
+		# not pay for a composite of the whole map on every tick of a slider.
+		self.rgbVersion = None
 		self.playerPanel = None
 		self.viewListener = None
 		# The GM's drawings over the map.  Shared between the two windows and
@@ -87,6 +92,7 @@ class MapPanel(wx.Panel):
 	def reset(self):
 		self.mapImg = None
 		self.mapBmp = None
+		self.rgbVersion = None
 
 	def onSize(self, evt):
 		w, h = self.GetClientSize()
@@ -160,9 +166,19 @@ class MapPanel(wx.Panel):
 
 	def _alpha(self, mask, box=None):
 		"""How this panel turns the fog mask into alpha.  The two windows show
-		   the same mask differently, and that is the only difference between
-		   them here."""
+		   the same mask differently, and that is one of the two differences
+		   between them here."""
 		raise Exception("_alpha called on base MapPanel class.")
+
+	def _rgb(self, box=None):
+		"""What colour this panel draws the map, as an (h, w, 3) array of
+		   bytes.  The other difference: with secrets on the map the GM sees
+		   unrevealed ones ghosted through and revealed ones washed with a
+		   tint, and the players see neither.
+
+		   With no secret layer this is the map's own pixels and costs
+		   nothing, which is the case every map without them is in."""
+		raise Exception("_rgb called on base MapPanel class.")
 
 	def _mapRectToClient(self, box):
 		"""A box in map pixels as a rectangle in this panel's own coordinates."""
@@ -194,20 +210,65 @@ class MapPanel(wx.Panel):
 		if (fresh):
 			self.mapImg = gfx.pilToWx(self.map.mapImg)
 			self.mapBmp = None
+			self.rgbVersion = None
 			self._onImageCreated()
 		self._updateGrid()
 		if (self.mapImg is None):
 			return
-
-		box = self._clipToMap(rect) if (rect is not None) else None
-		if (fresh or (box is None)):
-			self.mapImg.SetAlpha(self._alpha(self.map.mask).tobytes())
-			self.mapBmp = None
-			self.Refresh(False)
+		if (tuple(self.mapImg.GetSize()) != tuple(self.map.size)):
+			# The image under us has just been swapped for one of another
+			# size.  The panel is about to be reset and handed the new one, so
+			# anything built against these dimensions would be thrown away -
+			# and wx rejects a buffer of the wrong length outright.
 			return
 
-		self._patchMap(box)
-		self.RefreshRect(self._mapRectToClient(box))
+		if ((not fresh) and (rect is not None)):
+			box = self._clipToMap(rect)
+			if (box is None):
+				# The dab fell off the edge of the map entirely, so there is
+				# nothing to bring up to date and nothing to repaint.
+				return
+			self._patchMap(box)
+			self.RefreshRect(self._mapRectToClient(box))
+			return
+
+		if (self.map.secretLayers and (self.rgbVersion != self.map.pixelVersion)):
+			# The colours themselves have moved: a swapped image, a secret
+			# painted in, a layer put on or taken off.  Everything else that
+			# comes through here - a grid being dragged about, most of all -
+			# leaves them alone and must not pay for compositing the map.
+			# _putRgb puts the alpha back itself, so this is the whole update.
+			self._putRgb(self._rgb())
+		else:
+			self.mapImg.SetAlpha(self._alpha(self.map.mask).tobytes())
+		self.rgbVersion = self.map.pixelVersion
+		self.mapBmp = None
+		self.Refresh(False)
+
+	def _putRgb(self, rgb):
+		"""Put a whole composite into the image.
+
+		   SetData replaces the image's contents outright and takes the alpha
+		   channel with them, so the fog has to go straight back on.  That is
+		   what this exists for: a bare SetData at each call site is a fogless
+		   map waiting to happen."""
+		self.mapImg.SetData(gfx.rgbBytes(rgb))
+		self.mapImg.SetAlpha(self._alpha(self.map.mask).tobytes())
+
+	def refreshComposite(self):
+		"""Put the whole composite back together because the way this panel
+		   derives it has changed, rather than because the map has.  Ghosting
+		   and the tint are the GM's own settings, and neither is a change to
+		   any map."""
+		if ((self.mapImg is None) or (self.map is None) or
+			(not self.map.secretLayers)):
+			# With no layer there is nothing for either setting to change, and
+			# what is already in the image is the map's own pixels anyway.
+			return
+		self._putRgb(self._rgb())
+		self.rgbVersion = self.map.pixelVersion
+		self.mapBmp = None
+		self.Refresh(False)
 
 	def _onImageCreated(self):
 		"""Hook for whatever a panel has to do once, when the image appears."""
@@ -225,16 +286,27 @@ class MapPanel(wx.Panel):
 		w = x1 - x0
 		h = y1 - y0
 		alpha = self._alpha(self.map.mask, box)
+		rgb = self._rgb(box)
 
 		buf = np.frombuffer(self.mapImg.GetAlphaBuffer(), np.uint8)
 		buf = buf.reshape(self.mapImg.GetHeight(), self.mapImg.GetWidth())
 		buf[y0:y1, x0:x1] = alpha
 
+		if (self.map.secretLayers):
+			# A secret dab changes what colour those pixels are, and the image
+			# is read again from scratch whenever the bitmap is rebuilt - so
+			# the colours have to land in both or the dab is lost the next
+			# time anything asks for a wholesale rebuild.
+			data = np.frombuffer(self.mapImg.GetDataBuffer(), np.uint8)
+			data = data.reshape(self.mapImg.GetHeight(), self.mapImg.GetWidth(), 3)
+			data[y0:y1, x0:x1] = rgb
+			self.rgbVersion = self.map.pixelVersion
+
 		if (self.mapBmp is None):
 			# Nothing built yet; the next paint reads the image and gets this.
 			return
 		rgba = np.empty((h, w, 4), np.uint8)
-		rgba[:, :, :3] = np.asarray(self.map.mapImg.crop(box))[:, :, :3]
+		rgba[:, :, :3] = rgb
 		rgba[:, :, 3] = alpha
 		dc = wx.MemoryDC(self.mapBmp)
 		gc = wx.GraphicsContext.Create(dc)

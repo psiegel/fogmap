@@ -64,6 +64,10 @@ class GMFrame(MapPanelFrame):
 		self.panel.setScroller(self.scrollPanel)
 		self.panel.setZoomListener(self.updateZoomControl)
 		self.panel.setMode(self.modes[0], user=False)
+		# Read before the panel existed to be told; they are the GM's settings
+		# rather than any map's, and survive from one session to the next.
+		self.panel.setGhost(self.initialGhost)
+		self.panel.setSecretTint(self.initialSecretTint)
 
 		self.splitter.Initialize(self.scrollPanel)
 		sizer.Add(self.splitter, 1, wx.EXPAND)
@@ -178,6 +182,56 @@ class GMFrame(MapPanelFrame):
 		self.Bind(wx.EVT_MENU, self.onGridSettings, id=202)
 		self.Bind(wx.EVT_UPDATE_UI, self.onGridSettingsUpdate, id=202)
 		self.menuBar.Append(gridMenu, "Grid")
+
+		# Secrets Menu.  Its own rather than scattered through File and View:
+		# putting a secret layer on a map, painting it in and deciding how much
+		# of it the GM sees are one feature, and a map either has one or does
+		# not.  Ids 501+, clear of everything else.
+		secretMenu = wx.Menu()
+		secretMenu.Append(501, "Set Secret &Image...",
+						  "Put an image of this map's secrets over it.")
+		self.Bind(wx.EVT_MENU, self.onSetSecretImage, id=501)
+		self.Bind(wx.EVT_UPDATE_UI, self.onEditableDocUpdate, id=501)
+		secretMenu.Append(502, "&Remove Secret Image",
+						  "Take the secret layer off this map.")
+		self.Bind(wx.EVT_MENU, self.onRemoveSecretImage, id=502)
+		self.Bind(wx.EVT_UPDATE_UI, self.onSecretsUpdate, id=502)
+
+		secretMenu.AppendSeparator()
+		secretMenu.Append(503, "Reveal &All Secrets",
+						  "Show the players every secret on this map at once.")
+		self.Bind(wx.EVT_MENU, self.onRevealAllSecrets, id=503)
+		self.Bind(wx.EVT_UPDATE_UI, self.onSecretsUpdate, id=503)
+		secretMenu.Append(504, "&Hide All Secrets",
+						  "Cover every secret on this map back up.")
+		self.Bind(wx.EVT_MENU, self.onHideAllSecrets, id=504)
+		self.Bind(wx.EVT_UPDATE_UI, self.onSecretsUpdate, id=504)
+
+		secretMenu.AppendSeparator()
+		# How this window draws them, which is the GM's own affair: it changes
+		# nothing the players see and nothing any map file holds.
+		ghostMenu = wx.Menu()
+		for index, (label, help) in enumerate((
+				("&Hidden", "Draw undiscovered secrets exactly as the players "
+							"see them, which is not at all."),
+				("&Ghosted", "Show undiscovered secrets faintly through the map "
+							 "over them."),
+				("&Visible", "Show undiscovered secrets in full, as if every one "
+							 "had been found."))):
+			menuId = GMFrame.FIRST_GHOST_ID + index
+			ghostMenu.Append(menuId, label, help, wx.ITEM_RADIO)
+			self.Bind(wx.EVT_MENU,
+					  lambda evt, index=index: self.onGhostLevel(index), id=menuId)
+			self.Bind(wx.EVT_UPDATE_UI, self.onGhostLevelUpdate, id=menuId)
+		secretMenu.AppendSubMenu(ghostMenu, "&Undiscovered Secrets")
+		secretMenu.Append(508, "&Tint Revealed Secrets",
+						  "Wash the ground where a secret has been painted in, "
+						  "so it is clear where the brush has been.  Hold Alt+S "
+						  "over the map to see the whole layer for a moment.",
+						  wx.ITEM_CHECK)
+		self.Bind(wx.EVT_MENU, self.onToggleSecretTint, id=508)
+		self.Bind(wx.EVT_UPDATE_UI, self.onSecretTintUpdate, id=508)
+		self.menuBar.Append(secretMenu, "Secrets")
 
 		# View Menu.  Well clear of the 301+ range the recent files menu uses.
 		viewMenu = wx.Menu()
@@ -452,6 +506,53 @@ class GMFrame(MapPanelFrame):
 	def onGridSettingsUpdate(self, evt):
 		evt.Enable(self.hasGrid())
 
+	# --- secrets --------------------------------------------------------------
+
+	# The three ghost levels, in the order GMMapPanel.GHOST_LEVELS lists them.
+	FIRST_GHOST_ID = 505
+
+	def hasSecrets(self):
+		return ((self.panel != None) and
+				(self.panel.map != None) and
+				self.panel.map.editable and
+				self.panel.map.hasSecrets)
+
+	def onSecretsUpdate(self, evt):
+		evt.Enable(self.hasSecrets())
+
+	def onSetSecretImage(self, evt):
+		path = self.__askForImage("Select an Image of the Secrets")
+		if (path != None):
+			wx.GetApp().setSecretImage(path)
+
+	def onRemoveSecretImage(self, evt):
+		wx.GetApp().removeSecretImage()
+
+	def onRevealAllSecrets(self, evt):
+		wx.GetApp().fillSecrets(True)
+
+	def onHideAllSecrets(self, evt):
+		wx.GetApp().fillSecrets(False)
+
+	def onGhostLevel(self, index):
+		if (self.panel != None):
+			self.panel.setGhost(mappanel.GMMapPanel.GHOST_LEVELS[index][1])
+
+	def onGhostLevelUpdate(self, evt):
+		"""Kept usable with no secrets on the map: it is a setting about this
+		   window rather than about the map in it, and the GM may well want it
+		   set before opening the map they are about to want it on."""
+		index = evt.GetId() - GMFrame.FIRST_GHOST_ID
+		evt.Check((self.panel != None) and
+				  (self.panel.ghost == mappanel.GMMapPanel.GHOST_LEVELS[index][1]))
+
+	def onToggleSecretTint(self, evt):
+		if (self.panel != None):
+			self.panel.setSecretTint(evt.IsChecked())
+
+	def onSecretTintUpdate(self, evt):
+		evt.Check((self.panel != None) and self.panel.secretTint)
+
 	def hasPlayerView(self):
 		return (self.panel != None) and (self.panel.playerPanel != None)
 
@@ -592,8 +693,32 @@ class GMFrame(MapPanelFrame):
 		config = wx.Config("fogmap")
 		self.recentFiles = self.__readPathGroup(config, "/RecentFiles")
 		self.recentProjects = self.__readPathGroup(config, "/RecentProjects")
+		self.__readSecretConfig(config)
 		config.SetPath("/")
 		self.sashPos = config.ReadInt("ProjectSashPos", 220)
+
+	def __readSecretConfig(self, config):
+		"""How this window draws the secrets on a map.  Held here until there
+		   is a panel to put it on, which is not until the toolbar around it
+		   has been built."""
+		config.SetPath("/Secrets")
+		name = config.Read("Ghost", "")
+		self.initialGhost = mappanel.GMMapPanel.DEFAULT_GHOST
+		for label, value in mappanel.GMMapPanel.GHOST_LEVELS:
+			if (label == name):
+				self.initialGhost = value
+		self.initialSecretTint = config.ReadBool("Tint", True)
+		config.SetPath("/")
+
+	def __writeSecretConfig(self, config):
+		if (self.panel is None):
+			return
+		config.SetPath("/Secrets")
+		for label, value in mappanel.GMMapPanel.GHOST_LEVELS:
+			if (value == self.panel.ghost):
+				config.Write("Ghost", label)
+		config.WriteBool("Tint", self.panel.secretTint)
+		config.SetPath("/")
 
 	def __readModeConfig(self, config=None):
 		"""A mode's own settings - the pen and how long its ink lasts - belong
@@ -628,6 +753,7 @@ class GMFrame(MapPanelFrame):
 		if (self.splitter.IsSplit()):
 			self.sashPos = self.splitter.GetSashPosition()
 		config.WriteInt("ProjectSashPos", self.sashPos)
+		self.__writeSecretConfig(config)
 		self.__writeModeConfig(config)
 		config.Flush()
 

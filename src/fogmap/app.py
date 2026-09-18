@@ -217,7 +217,59 @@ class FogMapApp(wx.App):
 		# The panels cache the image, so they have to be rebuilt around it.
 		self.playerFrame.setMap(self.doc.map)
 		self.gmFrame.setMap(self.doc.map)
+		self.__noteImagePaths()
 		self.noteDirty()
+
+	# --- secrets --------------------------------------------------------------
+
+	def setSecretImage(self, imagePath):
+		"""Put an image of the map's secrets over it, in place of any already
+		   there.  What has been revealed so far is kept."""
+		if ((self.doc is None) or (not self.doc.editable)):
+			return
+		try:
+			self.doc.map.setSecretImage(imagePath)
+		except Exception as err:
+			self.__error("Could not use %s as a secret layer:\n\n%s"
+						 % (imagePath, err), "Secret Image Failed")
+			return
+		self.__secretsChanged()
+
+	def removeSecretImage(self):
+		if ((self.doc is None) or (not self.doc.editable)):
+			return
+		self.doc.map.removeSecretImage()
+		self.__secretsChanged()
+
+	def fillSecrets(self, revealed):
+		"""Reveal, or re-hide, every secret on the open map at one go."""
+		if ((self.doc is None) or (not self.doc.editable)):
+			return
+		self.doc.map.fillSecrets(revealed)
+		self.noteDirty()
+
+	def __secretsChanged(self):
+		"""A layer has been put on the map or taken off it.  The map itself
+		   repaints both windows on its own; what it cannot do is notice that
+		   the mode which paints secrets has just become available, or stopped
+		   being."""
+		self.gmFrame.panel.ensureModeAvailable()
+		self.gmFrame.updateControlState()
+		self.__noteImagePaths()
+		self.noteDirty()
+
+	def __noteImagePaths(self):
+		"""Tell the project which images the open map is drawn from, and put
+		   the sidebar right.
+
+		   It works that out from the map file, which knows nothing of a layer
+		   just put on or an image just swapped until the map is saved - so
+		   without this the new file sits beside the map in the tree, one
+		   click from the players' screen, until the project is reopened."""
+		if ((self.project is None) or (self.doc is None) or (self.doc.path is None)):
+			return
+		self.project.rememberImagePaths(self.doc.path, self.doc.map.imagePaths)
+		self.gmFrame.refreshProjectTree()
 
 	def __installDocument(self, doc):
 		# The whiteboard is drawn in map pixels, and means nothing over any map

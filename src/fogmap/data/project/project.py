@@ -3,7 +3,7 @@ import os
 import shutil
 
 from .dirtyentry import DirtyEntry
-from .mapfile import (isLegacyMapFile, readImagePath, spliceSettings,
+from .mapfile import (isLegacyMapFile, readImagePaths, spliceSettings,
 					  upgradeMapFile, writeMapFile)
 from .node import Node
 from .paths import isImagePath, isMapPath
@@ -17,6 +17,7 @@ class Project(object):
 		self.root = os.path.abspath(root)
 		self.dirty = {}
 		self.settings = {}
+		self.imagePaths = {}
 
 	name = property(lambda x: os.path.basename(x.root) or x.root)
 
@@ -56,6 +57,22 @@ class Project(object):
 
 	def rememberedSettings(self, path):
 		return self.settings.get(self.__key(path))
+
+	def rememberImagePaths(self, path, paths):
+		"""What images a file is drawn from, when the file on disk does not
+		   say so yet.
+
+		   A secret layer put on the open map, or an image swapped under it,
+		   is not written until the map is saved - and until then the sidebar
+		   would go on listing that image beside the map instead of tucked
+		   underneath it, which is exactly the misclick the nesting is there
+		   to prevent."""
+		if (self.contains(path)):
+			self.imagePaths[self.__key(path)] = list(paths)
+
+	def __imagePathsFor(self, path):
+		remembered = self.imagePaths.get(self.__key(path))
+		return remembered if (remembered is not None) else readImagePaths(path)
 
 	# --- dirty bookkeeping ----------------------------------------------------
 
@@ -200,28 +217,31 @@ class Project(object):
 		return dirs + maps + images
 
 	def __nestMapImages(self, folder, maps, images):
-		"""Tuck a map's own image underneath it.
+		"""Tuck the images a map is built from underneath it.
 
 		   Clicking the bare image beside a map would throw the whole unmasked
 		   map onto the players' screen, which is the one accident this tool
 		   exists to prevent.  Nesting it means reaching the image takes a
 		   deliberate expand.  Only same-folder images are hidden this way,
-		   since adjacency is where the misclick happens."""
+		   since adjacency is where the misclick happens.
+
+		   A map's secret layer is nested for the same reason and rather more
+		   urgently: clicking that one would show the players not merely the
+		   unfogged map but every secret on it."""
 		byPath = {}
 		for image in images:
 			byPath[self.__key(image.path)] = image
 
 		nested = set()
 		for mapNode in maps:
-			imgPath = readImagePath(mapNode.path)
-			if (imgPath is None):
-				continue
-			# join() leaves an absolute stored path alone, so both forms work.
-			key = self.__key(os.path.join(folder, imgPath))
-			image = byPath.get(key)
-			if (image is not None):
-				mapNode.children.append(Node(image.path, False))
-				nested.add(key)
+			for imgPath in self.__imagePathsFor(mapNode.path):
+				# join() leaves an absolute stored path alone, so both forms
+				# work.
+				key = self.__key(os.path.join(folder, imgPath))
+				image = byPath.get(key)
+				if ((image is not None) and (key not in nested)):
+					mapNode.children.append(Node(image.path, False))
+					nested.add(key)
 
 		return [i for i in images if self.__key(i.path) not in nested]
 

@@ -340,6 +340,11 @@ class PlayerMapPanel(MapPanel):
 	def _alpha(self, mask, box=None):
 		return gfx.playerAlpha(mask, box)
 
+	def _rgb(self, box=None):
+		"""A secret shows the players nothing at all until the GM paints it
+		   in, and everything the moment they do."""
+		return gfx.playerRgb(self.map.mapImg, self.map.secretLayers, box)
+
 	def _mapRectToClient(self, box):
 		"""This panel scales and pans, so a box of map pixels lands wherever
 		   the current view puts it.  Rounded outwards, plus a pixel of slack

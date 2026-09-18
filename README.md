@@ -7,6 +7,10 @@ A fog-of-war map tool for tabletop games. It opens two windows:
 - **GM View** — the full map at half brightness, where the GM paints areas to reveal
   or re-hide with the mouse, at whatever zoom suits the map.
 
+A map can also carry a second image of itself with its secret doors and hidden
+rooms drawn in, painted into view a piece at a time as the players find them —
+see [Secrets](#secrets).
+
 There is also a whiteboard layer over both, for drawing on and pointing at the map
 while the game is going on. Nothing drawn on it is ever saved.
 
@@ -21,7 +25,7 @@ src/fogmap/            the application
   data/                  maps, masks, brushes, projects - no UI
     board/                 the whiteboard layer and the strokes on it
     brush/                 the shapes the GM paints fog with
-    doc/                   a map: its image, its mask, its grid
+    doc/                   a map: its image, its mask, its grid, its secrets
     project/               a folder of maps, and the one open document
   ui/
     frames/                the two windows
@@ -99,6 +103,7 @@ the map rather than listing it alongside:
 dungeon/
   dungeon.map            <- click this for the fogged map
     +-- dungeon.jpg      <- collapsed; expand to show the players the whole thing
+    +-- dungeon-secrets.png   <- its secret layer, nested for the same reason
   handout-letter.png     <- an image no map uses, listed normally
 ```
 
@@ -124,7 +129,7 @@ copies left in there are offered back the next time that project is opened.
 
 ### Modes
 
-The three buttons at the left of the GM toolbar say what the mouse is for, and
+The buttons at the left of the GM toolbar say what the mouse is for, and
 exactly one of them is pressed at a time. Everything between them and the
 **Zoom** box belongs to whichever mode is picked and changes with it; the zoom
 past that is the GM's own and stays where it is.
@@ -137,11 +142,15 @@ mouse rests on it, and the menus spell all of it out in full.
 | Mode | What the mouse does | Its own toolbar controls |
 | --- | --- | --- |
 | **Fog** | Reveals and re-hides the map with the brush | Brush shape and brush size |
-| **Viewport** | Moves and resizes what the players can see | **Fit to Map** |
+| **Secrets** | Paints the map's secret layer into view | Brush shape and brush size |
 | **Draw** | Draws on the whiteboard layer, and points at the map | Colour, size, fade and **Clear** |
+| **Viewport** | Moves and resizes what the players can see | **Fit to Map** |
 
-`Ctrl+Shift+1`, `Ctrl+Shift+2` and `Ctrl+Shift+3` pick them, as do
-**View > Fog Mode**, **View > Viewport Mode** and **View > Draw Mode**.
+`Ctrl+Shift+1` to `Ctrl+Shift+4` pick them, as do the first four items of the
+View menu — the buttons read left to right in the same order as the numbers.
+Secrets mode is greyed out on a map that has no secret layer, which is most of
+them; see [Secrets](#secrets). Viewport mode comes last because it is the one
+the toolbar matters least for: **Alt** borrows it from wherever you already are.
 
 Whichever mode is picked, **View > Show Player Viewport** (`Ctrl+B`) outlines
 what the players can currently see - see [Seeing where the players are
@@ -167,6 +176,11 @@ gets the mouse back the moment the key comes up.
 | Drag | Move the players' visible area |
 | Drag an edge / corner | Resize the players' visible area |
 | **Fit** button | Zoom the Player View out to the whole map (same as `Ctrl+0`) |
+| **Secrets mode** | |
+| Left click / drag | Paint a secret into view with the current brush |
+| Right click / drag | Cover it back up |
+| Toolbar | Brush shape and size, kept apart from Fog mode's |
+| **Hold Alt+S** | Show the whole secret layer, in any mode |
 | **Draw mode** | |
 | Move the mouse | The players see an arrow where the GM is pointing |
 | Left drag | Draw on the whiteboard layer, in both views |
@@ -174,9 +188,10 @@ gets the mouse back the moment the key comes up.
 | Toolbar | Pen colour and size, how long a stroke lasts, and **Clear** |
 | **Clear** button | Wipe the whole layer at once |
 | **Any mode** | |
-| `Ctrl+Shift+1` / `Ctrl+Shift+2` / `Ctrl+Shift+3` | Fog / Viewport / Draw mode |
+| `Ctrl+Shift+1` ... `Ctrl+Shift+4` | Fog / Secrets / Draw / Viewport mode |
 | `Ctrl+B` | Outline what the players can see, or take the outline off again |
 | **Hold Alt** | Viewport mode for as long as the key is down |
+| **Hold Alt+S** | Show the whole secret layer for as long as the keys are down |
 | Alt + drag (either button) | Move the players' visible area |
 | Alt + drag an edge / corner | Resize the players' visible area |
 | `Ctrl+0` | Zoom the Player View out to the whole map |
@@ -188,6 +203,7 @@ gets the mouse back the moment the key comes up.
 | `Ctrl+W` | Swap the underlying image, keeping the revealed mask |
 | Click a file in the sidebar | Open it; `F5` re-reads the folder |
 | Grid menu | Toggle the grid and change its type (None / Square / Hex) and size |
+| Secrets menu | Put a secret layer on the map, reveal or hide all of it, and say how much of an undiscovered secret the GM sees |
 
 The Grid brush follows whichever grid is enabled, so it reveals whole squares or
 whole hexes. It is only selectable while a grid is active.
@@ -297,6 +313,104 @@ finishes the resize rather than abandoning it.
 
 With no Player View there is nothing to frame, and the key does nothing at all.
 
+Adding **S** to it peeks at the map's secret layer — see [Peeking](#peeking).
+That is on top of this rather than instead of it: the viewport is still borrowed,
+because the peek takes the mouse away from nobody.
+
+## Secrets
+
+Some maps have things on them the players are not meant to see yet: a secret
+door in a corridor wall, a room that only exists once somebody searches for it.
+For those, a map can carry **two** images — the ordinary one, and a second copy
+with the secrets drawn in — and the GM paints the second into view a piece at a
+time as the party finds them.
+
+**Secrets > Set Secret Image** puts one on the open map. It has to be the same
+size as the map's own image, and fogmap says so rather than stretching it if it
+is not. **Remove Secret Image** takes it off again.
+
+Once a map has one, the **Secrets** button on the toolbar (`Ctrl+Shift+4`) turns
+the mouse into a brush over it, with the same shapes and the same left-to-reveal,
+right-to-re-hide as the fog brush — and its own brush shape and size, because a
+secret door is a few dozen pixels and fog gets painted in sweeps. The cursor is
+violet rather than green, which is the only thing telling the two brushes apart
+before the button goes down.
+
+### Secrets and fog are separate
+
+They do not interact and never have to be reconciled. The fog mask says whether
+the players see a pixel at all; the secret mask says which of the map's two
+images that pixel comes from. Re-fogging a corridor does not un-discover the door
+in it, and revealing a secret in the dark does not light it up.
+
+That also means finding a secret door usually needs nothing done to the fog: the
+corridor is already explored, and painting the door in simply changes what is
+drawn on a wall the players have been looking at for an hour.
+
+### Seeing them on the GM's own map
+
+The two images are identical everywhere except at the secrets themselves, so over
+almost all of a map painting one in changes nothing that can be seen. Two things
+in the **Secrets** menu deal with that, and both are settings about the GM's
+window rather than about any map — they change nothing the players see, nothing a
+file holds, and they stay put from one map and one session to the next.
+
+- **Undiscovered Secrets** — **Hidden**, **Ghosted** or **Visible**. Hidden is
+  the default, and draws the GM's map exactly as the players' (bar the usual
+  dimming): a map half-showing its own secrets all evening reads as noise.
+  Ghosted shows them faintly through the map over them, and Visible shows the
+  lot, for prepping a map or answering "what is actually behind that wall?".
+- **Tint Revealed Secrets**, on by default, washes ground where the brush has
+  been in violet. It is the only feedback there is that a dab landed at all out
+  on the plain parts of a map, which is why it is on to start with.
+
+**Reveal All Secrets** and **Hide All Secrets** flip the whole layer at one go.
+
+### Peeking
+
+Holding **Alt+S** over the GM map, in any mode, shows the whole secret layer at
+once — everything on it, found and unfound alike. Let go and the map is back as
+it was. For a look that lasts, set **Undiscovered Secrets** to **Visible**
+instead; this is the glance you take without changing anything on the way past.
+
+Whatever the players have already found stays marked while peeking, washed a
+darker violet than the ordinary tint. With the whole layer at full strength that
+wash is the only thing left telling found from unfound, so it is on for the
+duration whether or not **Tint Revealed Secrets** is — and it is dark rather than
+merely violet, because a wash at ordinary brightness comes out purpler but no
+darker at all over saturated map colours.
+
+It is a letter rather than a second modifier because **Shift** and **Ctrl** are
+already the brush's axis lock, and looking at the secrets should not be the same
+gesture as painting a straight line. **Alt** on its own still borrows Viewport
+mode exactly as it did; the S is simply extra, and the two do not interfere.
+
+A peek changes nothing — no mask is touched, no file is written, and the players'
+screen does not so much as flicker.
+
+On a map whose secret layer is a second full copy, a peek recomposites the whole
+map, which is a perceptible pause on a very large one. A layer drawn as the
+secrets alone over transparency costs only the ground it covers, and is
+instant — one more reason to draw one that way.
+
+### Drawing the secret layer
+
+Two ways, and fogmap takes either:
+
+- **A second full copy of the map**, the way you would export it twice from
+  whatever drew it. Simple, and doubles what the map costs in memory.
+- **Just the secrets, over transparency** — a PNG holding the door and the room
+  behind it and nothing else. Smaller, and rather faster: the layer's own alpha
+  channel says exactly where it can ever change anything, so everywhere else is
+  skipped outright rather than composited. This is the better of the two.
+
+Either way the layer's image is stored beside the map's own and nested under it
+in the sidebar, for the same reason the map's image is and rather more urgently:
+clicking the bare file would show the players not merely the unfogged map but
+every secret on it. That nesting happens the moment the layer goes on, before the
+map has been saved — the sidebar works out what a map is drawn from by reading
+the map file, so until then it is told instead.
+
 ## Draw mode
 
 **Draw** (`Ctrl+Shift+3`, or **View > Draw Mode**) turns the map into a whiteboard:
@@ -344,6 +458,17 @@ A `.map` file is XML holding a *path* to the map image plus the reveal mask,
 plus the Player View's zoom and pan, the GM's own zoom and input mode, and
 whether the player-viewport outline is showing. The image itself is not
 embedded, and neither is anything drawn on the whiteboard layer - see Draw mode.
+
+A map with secrets on it also carries a `<secretLayer>` per layer, holding that
+layer's image path and its own mask in exactly the same encoding as the fog's.
+It is written **before** the fog mask, so that the sidebar can read a map's
+image paths out of the head of the file without pulling in the base64 that is
+most of its weight. A map with no secrets writes none of this and its file is
+what it always was.
+
+The element repeats although the UI offers one layer. Which of those two is
+cheap to change later is not the same one: another layer is a toolbar control,
+another file format is every map anybody has already saved.
 
 The `<viewport visible="...">` flag beside the zoom predates modes entirely, and
 means in a file written today exactly what it meant in one written before them:
