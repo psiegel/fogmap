@@ -4,18 +4,18 @@ from .gridbrush import GridBrush
 
 
 class HexGridBrush(GridBrush):
-	def __init__(self, hexSize, brushSize):
-		self.hexSize = hexSize
+	def __init__(self, grid, brushSize):
 		self.brushSize = brushSize
-		
+		self.setGrid(grid)
+
 	def getSize(self):
 		return self.brushSize
 
 	def setSize(self, size):
 		self.brushSize = size
-		
-	def setGridSize(self, size):
-		self.hexSize = size
+
+	def setGrid(self, grid):
+		self.hexSize = grid.hexSize
 
 	def drawToGc(self, gc, x, y):
 		hex.fillHexCircleToGc(gc, (x, y), self.brushSize, self.hexSize)

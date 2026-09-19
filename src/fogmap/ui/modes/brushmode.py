@@ -110,10 +110,8 @@ class BrushMode(InputMode):
 				dlg.ShowModal()
 				dlg.Destroy()
 				self.brushType.SetValue("None")
-			elif (panel.map.grid.type == data.Grid.GRID_SQUARE):
-				brush = data.SquareGridBrush(panel.map.grid.size, self.getBrushSize())
-			elif (panel.map.grid.type == data.Grid.GRID_HEX):
-				brush = data.HexGridBrush(panel.map.grid.size, self.getBrushSize())
+			else:
+				brush = data.createGridBrush(panel.map.grid, self.getBrushSize())
 		self.setBrush(brush)
 		panel.Refresh()
 
@@ -169,8 +167,18 @@ class BrushMode(InputMode):
 			self.mouse = pos
 
 	def onGridChanged(self):
-		if (isinstance(self.brush, data.GridBrush)):
-			self.brush.setGridSize(self.panel.map.grid.size)
+		if (not isinstance(self.brush, data.GridBrush)):
+			return
+		# Built again rather than adjusted: the type can change under the brush
+		# as well as the measurements, and a brush that snaps to squares has no
+		# business on a hex grid.
+		brush = data.createGridBrush(self.panel.map.grid, self.getBrushSize())
+		if (brush is None):
+			# The grid has been turned off underneath a brush that paints
+			# nothing but whole cells of it, so there is nothing left to snap
+			# to and the toolbar has to agree.
+			self.brushType.SetValue("None")
+		self.setBrush(brush)
 
 	# --- input ----------------------------------------------------------------
 

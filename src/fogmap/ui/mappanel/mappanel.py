@@ -1,7 +1,6 @@
 import wx
 import numpy as np
 
-from ... import data
 from ... import gfx
 
 from .. import board
@@ -318,11 +317,7 @@ class MapPanel(wx.Panel):
 		dc.SelectObject(wx.NullBitmap)
 
 	def _updateGrid(self):
-		self.grid = None
-		if (self.map.grid.type == data.Grid.GRID_SQUARE):
-			self.grid = grid.SquareGrid(self.map.grid.size)
-		elif (self.map.grid.type == data.Grid.GRID_HEX):
-			self.grid = grid.HexGrid(self.map.grid.size)
+		self.grid = grid.createGrid(self.map.grid)
 			
 	def readSettings(self, settings):
 		raise Exception("getSettings called on base MapPanel class.")

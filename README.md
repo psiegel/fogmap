@@ -36,6 +36,7 @@ src/fogmap/            the application
     board.py               the whiteboard's strokes, and the GM's pointer
     projecttree.py         the sidebar
     griddialog.py          the grid settings dialog
+    numericfield.py        a number that can be typed, stepped or dragged
   resources/             the app icon, shipped inside the package
 tests/data/            a sample map and its image
 ```
@@ -202,7 +203,7 @@ gets the mouse back the moment the key comes up.
 | `Ctrl+Shift+O` / `Ctrl+Shift+S` | Open Project / Save All |
 | `Ctrl+W` | Swap the underlying image, keeping the revealed mask |
 | Click a file in the sidebar | Open it; `F5` re-reads the folder |
-| Grid menu | Toggle the grid and change its type (None / Square / Hex) and size |
+| Grid menu | Toggle the grid, and change its type (None / Square / Hex) and the settings that type has |
 | Secrets menu | Put a secret layer on the map, reveal or hide all of it, and say how much of an undiscovered secret the GM sees |
 
 The Grid brush follows whichever grid is enabled, so it reveals whole squares or

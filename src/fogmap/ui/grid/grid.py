@@ -2,8 +2,8 @@
 
 
 class Grid(object):
-	def __init__(self, gridSize):
-		self.gridSize = gridSize
+	"""A grid of one particular kind, built from the settings on the map's own
+	   grid."""
 
 	def drawGrid(self, gc, w, h, clip=None):
 		"""clip is the box of map being repainted, as (x0, y0, x1, y1), or None
