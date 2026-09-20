@@ -1,101 +1,99 @@
-"""The grid settings dialog.
+"""The grid settings dialog: a kind of grid to pick, and that kind's own
+   settings underneath it.
 
-   What a grid is made of is the grid's own business: the dialog asks the type
-   the GM has picked which settings it has and builds a field for each one, so
-   a new kind of grid with different measurements needs nothing here.  See
-   data.doc.grid for the options themselves."""
+   A grid never changes its kind - picking another one makes a new grid and
+   hands it to the map.  What the settings are is the panel's business; see
+   ui.gridpanels."""
 import wx
 
 from ..data import doc
 
-from .numericfield import HGAP, VGAP, NumericField
+from .gridpanels import GridSettingsPanel, HexGridPanel, SquareGridPanel
 
 
 class GridDialog(wx.Dialog):
-	def __init__(self, grid, *args, **kwargs):
-		super(GridDialog, self).__init__(*args, **kwargs)
+	# Which panel goes with which kind of grid.  A kind not listed gets the
+	# bare one, which has nothing on it: a map with no grid has nothing to set.
+	PANELS = {
+		doc.SquareGrid: SquareGridPanel,
+		doc.HexGrid: HexGridPanel,
+	}
 
+	def __init__(self, grid, setGrid, *args, **kwargs):
+		"""setGrid is how a grid of another kind reaches the map it belongs
+		   to, since picking one is not something the grid in hand can do to
+		   itself."""
+		super(GridDialog, self).__init__(*args, **kwargs)		
+		
 		self.grid = grid
+		self.setGrid = setGrid
 		self.grid.visible = True
-		self.fields = {}
-
+		# The grids made while this dialog has been open, by kind.  Trying
+		# hexes and going back to squares finds the squares as they were left,
+		# and they go no further than here: the map holds the one grid it has,
+		# and that is all its file has ever held.
+		self.grids = {grid.type: grid}
+		
 		self.__layoutUI()
-
+		
 	def __layoutUI(self):
 		self.sizer = wx.BoxSizer(wx.VERTICAL)
-
+		
 		label = wx.StaticText(self, -1, "Grid Settings")
 		self.sizer.Add(label, 0, wx.ALIGN_CENTER_HORIZONTAL|wx.ALL, 5)
-
-		box = wx.BoxSizer(wx.HORIZONTAL)
+		
+		box = wx.BoxSizer(wx.HORIZONTAL)		
 		label = wx.StaticText(self, -1, "Grid Type:")
 		box.Add(label, 0, wx.ALIGN_CENTER_VERTICAL|wx.ALL, 5)
-
+		
 		gridTypes = [doc.Grid.GRID_NONE, doc.Grid.GRID_SQUARE, doc.Grid.GRID_HEX]
 		self.gridType = wx.Choice(self, -1, (100, 50), choices=gridTypes)
 		self.gridType.SetStringSelection(self.grid.type)
 		self.Bind(wx.EVT_CHOICE, self.onTypeChanged, self.gridType)
 		box.Add(self.gridType, 1, wx.ALIGN_CENTER_VERTICAL|wx.ALL, 5)
-
+		
 		self.sizer.Add(box, 0, wx.GROW|wx.ALL, 5)
-
-		# The settings the chosen type has, on a panel of their own: changing
-		# type throws the whole lot away and builds the next type's instead.
-		self.optionsPanel = self.__buildOptions()
-		self.sizer.Add(self.optionsPanel, 0, wx.GROW|wx.ALL, 5)
-
+		
+		self.settings = self.__settingsPanel()
+		self.sizer.Add(self.settings, 0, wx.GROW|wx.ALL, 5)
+		
 		btnsizer = wx.StdDialogButtonSizer()
-
+		
 		btn = wx.Button(self, wx.ID_OK)
 		btn.SetDefault()
 		btnsizer.AddButton(btn)
-
+		
 		btn = wx.Button(self, wx.ID_CANCEL)
 		btnsizer.AddButton(btn)
 		btnsizer.Realize()
-
+		
 		self.sizer.Add(btnsizer, 0, wx.ALIGN_CENTER_HORIZONTAL|wx.ALL, 5)
-
+		
 		self.SetSizer(self.sizer)
 		self.sizer.Fit(self)
-
-	def __buildOptions(self):
-		"""A panel of fields, one per setting the current grid type has.  A
-		   type with nothing to set - no grid at all - gets an empty one, which
-		   takes up no room."""
-		panel = wx.Panel(self, -1)
-		sizer = wx.FlexGridSizer(cols=3, vgap=VGAP, hgap=HGAP)
-		# The sliders take whatever width is going; the labels and the boxes
-		# they are typed into keep theirs.
-		sizer.AddGrowableCol(2, 1)
-
-		self.fields = {}
-		for option in self.grid.options:
-			field = NumericField(panel, sizer, option.label,
-								 self.grid.getOption(option.key),
-								 option.minValue, option.maxValue, option.step,
-								 option.tip,
-								 lambda value, key=option.key:
-									 self.onOptionChanged(key, value))
-			self.fields[option.key] = field
-
-		panel.SetSizer(sizer)
-		return panel
-
+		
+	def __settingsPanel(self):
+		panelClass = GridDialog.PANELS.get(type(self.grid), GridSettingsPanel)
+		return panelClass(self, self.grid)
+		
 	def onTypeChanged(self, evt):
-		self.grid.type = self.gridType.GetStringSelection()
-
-		# The new type's settings are not the old one's, so the fields go with
-		# it.  The dialog is resized to whatever the new set needs.
-		panel = self.__buildOptions()
-		self.sizer.Replace(self.optionsPanel, panel)
-		self.optionsPanel.Destroy()
-		self.optionsPanel = panel
+		self.grid = self.__gridOfType(self.gridType.GetStringSelection())
+		self.grid.visible = True
+		# Onto the map, which draws the new grid in place of the old one.
+		self.setGrid(self.grid)
+		
+		# Its settings are not the last kind's, so the whole panel goes with
+		# it.  The dialog is resized to whatever the new one needs.
+		panel = self.__settingsPanel()
+		self.sizer.Replace(self.settings, panel)
+		self.settings.Destroy()
+		self.settings = panel
 		self.Layout()
 		self.sizer.Fit(self)
-
-	def onOptionChanged(self, key, value):
-		# Straight onto the grid, which repaints both windows as it goes: the
-		# point of the dialog is seeing the grid land on the map while it is
-		# being set.  Cancel puts back the copy the caller kept.
-		self.grid.setOption(key, value)
+		
+	def __gridOfType(self, type):
+		grid = self.grids.get(type)
+		if (grid is None):
+			grid = doc.gridForType(type)
+			self.grids[type] = grid
+		return grid

@@ -49,6 +49,7 @@ class GMFrame(MapPanelFrame):
 
 		self.projectTree = projecttree.ProjectTreePanel(self.splitter)
 		self.projectTree.setSelectionListener(self.onProjectFileSelected)
+		self.projectTree.setNewMapListener(self.onProjectNewMap)
 		self.projectTree.Hide()
 
 		self.scrollPanel = scrolled.ScrolledPanel(self.splitter, -1)
@@ -114,6 +115,26 @@ class GMFrame(MapPanelFrame):
 
 	def onProjectFileSelected(self, path):
 		wx.GetApp().activateDocument(path)
+
+	def onProjectNewMap(self, imagePath):
+		"""Make a map out of one of the project's own images - the sidebar's
+		   right click on an image that has no map yet.
+
+		   It is saved straight away rather than left untitled: the image is
+		   already in the project, so where its map goes is not a question
+		   worth asking, and a map with a home is one the GM can click away
+		   from."""
+		app = wx.GetApp()
+		if (not app.newMap(imagePath)):
+			return
+		target = os.path.splitext(imagePath)[0] + ".map"
+		if (os.path.exists(target)):
+			# Something is called that already - the map of another image,
+			# most likely - so the GM says where this one goes instead.
+			self.onFileSaveAs(None)
+			return
+		if (app.saveDocument(target)):
+			self.__addToRecentFiles(target)
 
 	def onDocumentChanged(self):
 		"""Bring the window into line with whatever document is now open."""
@@ -496,11 +517,14 @@ class GMFrame(MapPanelFrame):
 	def onGridSettings(self, evt):
 		if (not self.hasGrid()):
 			return
-		currentGrid = self.panel.map.grid.copy()
-		dlg = GridDialog(self.panel.map.grid, self, -1, "Grid Settings")
+		map = self.panel.map
+		# What Cancel puts back - including the kind it was, since picking
+		# another one in there swaps the map's grid for a new one.
+		currentGrid = map.grid.copy()
+		dlg = GridDialog(map.grid, map.replaceGrid, self, -1, "Grid Settings")
 		dlg.CenterOnParent()
 		if (dlg.ShowModal() != wx.ID_OK):
-			self.panel.map.grid = currentGrid
+			map.replaceGrid(currentGrid)
 		dlg.Destroy()
 		
 	def onGridSettingsUpdate(self, evt):

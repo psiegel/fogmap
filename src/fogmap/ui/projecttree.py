@@ -15,7 +15,11 @@ class ProjectTreePanel(wx.Panel):
 
 		self.project = None
 		self.selectionListener = None
+		self.newMapListener = None
 		self.itemsByPath = {}
+		# What the menu that is up was opened over.  The tree's selection is
+		# not it: see onItemRightClick.
+		self.menuPath = None
 		# Set while the app is driving the selection, so echoing it back as a
 		# file-open request does not fight whatever the app is in the middle of.
 		self.settingSelection = False
@@ -27,7 +31,11 @@ class ProjectTreePanel(wx.Panel):
 		self.__createIcons()
 
 		self.tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.onSelectionChanged)
+		self.tree.Bind(wx.EVT_TREE_ITEM_RIGHT_CLICK, self.onItemRightClick)
 		self.tree.Bind(wx.EVT_CHAR_HOOK, self.onChar)
+
+		self.newMapId = wx.NewIdRef()
+		self.Bind(wx.EVT_MENU, self.onNewMap, id=self.newMapId)
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sizer.Add(self.tree, 1, wx.EXPAND)
@@ -36,6 +44,10 @@ class ProjectTreePanel(wx.Panel):
 	def setSelectionListener(self, listener):
 		"""Called with the path of a file the GM picked out of the tree."""
 		self.selectionListener = listener
+
+	def setNewMapListener(self, listener):
+		"""Called with the path of an image the GM wants a map made out of."""
+		self.newMapListener = listener
 
 	def setProject(self, project):
 		self.project = project
@@ -94,6 +106,49 @@ class ProjectTreePanel(wx.Panel):
 			return
 		if (self.selectionListener is not None):
 			self.selectionListener(path)
+
+	def onItemRightClick(self, evt):
+		"""The menu for an item, if there is anything to offer for it.
+
+		   The item is deliberately not selected first, which is what a right
+		   click usually does: selecting a file here opens it, and opening a
+		   bare image is the one accident the sidebar is arranged to
+		   prevent."""
+		item = evt.GetItem()
+		if (not item.IsOk()):
+			return
+		path = self.tree.GetItemData(item)
+		if (not self.__canMakeMap(item, path)):
+			return
+
+		self.menuPath = path
+		menu = wx.Menu()
+		menu.Append(self.newMapId, "New Map",
+					"Make a map out of this image and open it.")
+		self.PopupMenu(menu)
+		menu.Destroy()
+		self.menuPath = None
+
+	def onNewMap(self, evt):
+		if ((self.menuPath is not None) and (self.newMapListener is not None)):
+			# After the menu has gone, so that whatever this opens is not put
+			# up behind it.
+			path = self.menuPath
+			wx.CallAfter(self.newMapListener, path)
+
+	def __canMakeMap(self, item, path):
+		"""Whether an item is an image with no map of its own.
+
+		   An image a map is built from hangs underneath it in the tree, so the
+		   ones worth offering this for are the ones that do not."""
+		if ((path is None) or os.path.isdir(path) or
+			(not data.isImagePath(path))):
+			return False
+		parent = self.tree.GetItemParent(item)
+		if ((not parent.IsOk()) or (parent == self.tree.GetRootItem())):
+			return True
+		parentPath = self.tree.GetItemData(parent)
+		return (parentPath is None) or (not data.isMapPath(parentPath))
 
 	def onChar(self, evt):
 		if (evt.GetKeyCode() == wx.WXK_F5):

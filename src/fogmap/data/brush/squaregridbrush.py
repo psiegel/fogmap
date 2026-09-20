@@ -18,8 +18,8 @@ class SquareGridBrush(GridBrush):
 		self.brushSize = size
 
 	def setGrid(self, grid):
-		self.cellWidth = grid.cellWidth
-		self.cellHeight = grid.cellHeight
+		self.cellWidth = grid.width
+		self.cellHeight = grid.height
 		self.offsetX = grid.offsetX
 		self.offsetY = grid.offsetY
 

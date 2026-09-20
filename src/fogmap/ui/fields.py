@@ -1,10 +1,10 @@
-"""A number that can be typed, stepped, or dragged.
+"""The controls a settings dialog is built out of, one setting to a field.
 
-   A slider on its own is quick to sweep and hopeless for setting an exact
-   number, which is what a grid measured off a scanned map needs.  This pairs a
-   spin control - a text box with its own up and down arrows - with a slider
-   over the same value, so either way of setting it is to hand and they always
-   agree."""
+   Each field puts itself into three cells of a shared grid sizer - its label,
+   the control, and whatever wants the width left over - so that a column of
+   them lines up however many there are and whatever kind they are.  They all
+   answer to GetValue, SetValue and Enable, and call a handler when the GM
+   changes them."""
 import wx
 
 
@@ -20,11 +20,13 @@ SPIN_WIDTH = 70
 
 
 class NumericField(object):
-	"""One labelled number, added as three cells of a three-column grid sizer -
-	   label, spin control, slider - so that a column of fields lines up.
+	"""A number that can be typed, stepped, or dragged.
 
-	   The caller's handler is called with the new value whenever it actually
-	   changes, by whichever of the two controls."""
+	   A slider on its own is quick to sweep and hopeless for setting an exact
+	   number, which is what a grid measured off a scanned map needs.  This
+	   pairs a spin control - a text box with its own up and down arrows - with
+	   a slider over the same value, so either way of setting it is to hand and
+	   they always agree."""
 
 	def __init__(self, parent, sizer, label, value, minValue, maxValue,
 				 step=1, tip="", onChange=None):
@@ -92,6 +94,19 @@ class NumericField(object):
 	def SetValue(self, value):
 		"""Put a value in from outside, without calling the handler back."""
 		self.__setValue(value, notify=False)
+
+	def SetRange(self, minValue, maxValue):
+		"""Move the range this field will take, for one that is only allowed as
+		   far as some other setting says - and pull the value in after it if
+		   it no longer fits."""
+		if ((minValue, maxValue) == (self.minValue, self.maxValue)):
+			return
+		self.minValue, self.maxValue = minValue, maxValue
+		self.syncing = True
+		self.spin.SetRange(minValue, maxValue)
+		self.slider.SetRange(minValue, maxValue)
+		self.syncing = False
+		self.SetValue(self.value)
 
 	def Enable(self, enable=True):
 		for window in (self.label, self.spin, self.slider):
@@ -161,3 +176,93 @@ class NumericField(object):
 	def __onSlider(self, evt):
 		if (not self.syncing):
 			self.__setValue(self.slider.GetValue())
+
+
+class ChoiceField(object):
+	"""One of a short list of names, as a drop-down.
+
+	   The control is narrow and the third column is left empty rather than
+	   stretched into: a drop-down as wide as a slider looks like a mistake."""
+
+	def __init__(self, parent, sizer, label, value, choices, tip="",
+				 onChange=None):
+		self.choices = tuple(choices)
+		self.onChange = onChange
+		self.value = value if (value in self.choices) else self.choices[0]
+
+		self.label = wx.StaticText(parent, -1, "%s:" % label)
+		self.choice = wx.Choice(parent, -1, choices=list(self.choices))
+		self.choice.SetStringSelection(self.value)
+		self.choice.Bind(wx.EVT_CHOICE, self.__onChoice)
+
+		if (tip):
+			for window in (self.label, self.choice):
+				window.SetToolTip(tip)
+
+		sizer.Add(self.label, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
+		sizer.Add(self.choice, 0, wx.ALIGN_CENTER_VERTICAL)
+		sizer.Add((0, 0))
+
+	def GetValue(self):
+		return self.value
+
+	def SetValue(self, value):
+		"""Put a value in from outside, without calling the handler back."""
+		if (value not in self.choices):
+			return
+		self.value = value
+		self.choice.SetStringSelection(value)
+
+	def Enable(self, enable=True):
+		for window in (self.label, self.choice):
+			window.Enable(enable)
+
+	def __onChoice(self, evt):
+		value = self.choice.GetStringSelection()
+		if (value == self.value):
+			return
+		self.value = value
+		if (self.onChange != None):
+			self.onChange(value)
+
+
+class FlagField(object):
+	"""On or off, as a checkbox.
+
+	   The caption goes in the label column like every other field's rather
+	   than on the checkbox itself, so that a column of settings still reads
+	   down the same line whatever sort each of them is."""
+
+	def __init__(self, parent, sizer, label, value, tip="", onChange=None):
+		self.onChange = onChange
+		self.value = bool(value)
+
+		self.label = wx.StaticText(parent, -1, "%s:" % label)
+		self.check = wx.CheckBox(parent, -1, "")
+		self.check.SetValue(self.value)
+		self.check.Bind(wx.EVT_CHECKBOX, self.__onCheck)
+
+		if (tip):
+			for window in (self.label, self.check):
+				window.SetToolTip(tip)
+
+		sizer.Add(self.label, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT)
+		sizer.Add(self.check, 0, wx.ALIGN_CENTER_VERTICAL)
+		sizer.Add((0, 0))
+
+	def GetValue(self):
+		return self.value
+
+	def SetValue(self, value):
+		"""Put a value in from outside, without calling the handler back."""
+		self.value = bool(value)
+		self.check.SetValue(self.value)
+
+	def Enable(self, enable=True):
+		for window in (self.label, self.check):
+			window.Enable(enable)
+
+	def __onCheck(self, evt):
+		self.value = self.check.GetValue()
+		if (self.onChange != None):
+			self.onChange(self.value)

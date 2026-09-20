@@ -36,7 +36,8 @@ src/fogmap/            the application
     board.py               the whiteboard's strokes, and the GM's pointer
     projecttree.py         the sidebar
     griddialog.py          the grid settings dialog
-    numericfield.py        a number that can be typed, stepped or dragged
+    gridpanels.py          the settings each kind of grid offers
+    fields.py              the controls those are built out of
   resources/             the app icon, shipped inside the package
 tests/data/            a sample map and its image
 ```
@@ -85,6 +86,9 @@ of it down the left of the GM window, and clicking a file opens it:
 - an image (PNG, JPG, GIF, BMP, TIFF, WEBP) is shown to the players whole and
   **unmasked**, for handouts and battle maps that need no fog. The brush and the
   grid controls grey out, and there is nothing to save.
+
+Right-clicking an image that has no map of its own offers **New Map**, which
+makes one from that image and saves it beside it under the same name.
 
 The GM can click back and forth freely. Unsaved fog stays put: switching away from
 a map you have painted on keeps those changes, and clicking back returns the map
@@ -203,6 +207,7 @@ gets the mouse back the moment the key comes up.
 | `Ctrl+Shift+O` / `Ctrl+Shift+S` | Open Project / Save All |
 | `Ctrl+W` | Swap the underlying image, keeping the revealed mask |
 | Click a file in the sidebar | Open it; `F5` re-reads the folder |
+| Right-click an image in the sidebar | **New Map** from it, if it has no map yet |
 | Grid menu | Toggle the grid, and change its type (None / Square / Hex) and the settings that type has |
 | Secrets menu | Put a secret layer on the map, reveal or hide all of it, and say how much of an undiscovered secret the GM sees |
 

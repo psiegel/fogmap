@@ -3,7 +3,7 @@ from lxml import etree
 
 from ... import gfx
 
-from .grid import Grid
+from .grid import Grid, gridFromXml
 from .imagepath import relativeImagePath, resolveImagePath
 from .mask import isLegacyMaskNode, readMaskNode, writeMaskNode
 from .secretlayer import SecretLayer
@@ -47,9 +47,19 @@ class Map(object):
 		self.updateListeners = []
 
 	def setGrid(self, grid):
+		"""Quietly, for a map being built out of a file: what it is read with
+		   is not a change to it."""
 		self.__grid = grid
 		self.__grid.setUpdateCallback(self.__contentChanged)
 	grid = property(lambda x: x.__grid, setGrid)
+
+	def replaceGrid(self, grid):
+		"""One kind of grid swapped for another, which the GM does by picking a
+		   type in the settings dialog.  A grid cannot change its kind, so this
+		   is what changing it looks like - and it counts as a change to the
+		   map like any other, both to draw and to save."""
+		self.setGrid(grid)
+		self.__contentChanged()
 
 	@staticmethod
 	def createNew(imgPath):
@@ -97,7 +107,7 @@ class Map(object):
 				imgPath = element.text
 				mapImg = Image.open(resolveImagePath(imgPath, baseDir)).convert("RGBA")
 			elif (element.tag == "grid"):
-				grid.fromXml(element)
+				grid = gridFromXml(element)
 			elif (element.tag == "maskData"):
 				mask = readMaskNode(element)
 				legacy = legacy or isLegacyMaskNode(element)
