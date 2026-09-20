@@ -419,6 +419,11 @@ class GMFrame(MapPanelFrame):
 			self.__rebuildRecentFilesMenu()
 			self.__writeConfig()
 
+	def onClearRecentFiles(self, evt):
+		self.recentFiles = []
+		self.__rebuildRecentFilesMenu()
+		self.__writeConfig()
+
 	def onOpenProject(self, evt):
 		dlg = wx.DirDialog(self, message="Choose a project folder",
 						   defaultPath=self.defaultDirAndFile()[0],
@@ -434,6 +439,11 @@ class GMFrame(MapPanelFrame):
 			self.recentProjects.remove(path)
 			self.__rebuildRecentProjectsMenu()
 			self.__writeConfig()
+
+	def onClearRecentProjects(self, evt):
+		self.recentProjects = []
+		self.__rebuildRecentProjectsMenu()
+		self.__writeConfig()
 
 	def onCloseProject(self, evt):
 		wx.GetApp().closeProject()
@@ -694,7 +704,8 @@ class GMFrame(MapPanelFrame):
 		evt.Enable((self.panel != None) and (self.panel.map != None))
 
 	# Both recent lists are capped so their menu ids cannot run into the next
-	# range: files use 301+, projects 401+.
+	# range: files use 301+, projects 401+, with the id just past the cap in
+	# each range kept for that menu's Clear item.
 	MAX_RECENT = 10
 
 	def __addToRecentFiles(self, path):
@@ -788,16 +799,23 @@ class GMFrame(MapPanelFrame):
 			config.Write(str(index), path)
 
 	def __rebuildRecentFilesMenu(self):
-		self.__rebuildRecentMenu(self.recentFilesMenu, self.recentFiles, 301,
-								 self.onFileOpenRecent)
+		self.__rebuildRecentMenu(self.recentFilesMenu, "recentFiles", 301,
+								 self.onFileOpenRecent, self.onClearRecentFiles,
+								 "Forget every map in this list.")
 
 	def __rebuildRecentProjectsMenu(self):
-		self.__rebuildRecentMenu(self.recentProjectsMenu, self.recentProjects, 401,
-								 self.onOpenRecentProject)
+		self.__rebuildRecentMenu(self.recentProjectsMenu, "recentProjects", 401,
+								 self.onOpenRecentProject, self.onClearRecentProjects,
+								 "Forget every project in this list.")
 
-	def __rebuildRecentMenu(self, menu, paths, firstId, handler):
+	def __rebuildRecentMenu(self, menu, listName, firstId, handler, clearHandler,
+							clearHelp):
+		paths = getattr(self, listName)
+		clearId = firstId + GMFrame.MAX_RECENT
+		self.Unbind(wx.EVT_UPDATE_UI, id=clearId)
 		for item in menu.GetMenuItems():
-			self.Unbind(wx.EVT_MENU, id=item.GetId())
+			if (not item.IsSeparator()):
+				self.Unbind(wx.EVT_MENU, id=item.GetId())
 			menu.Remove(item)
 		for idx, path in enumerate(paths):
 			menuId = firstId + idx
@@ -805,5 +823,14 @@ class GMFrame(MapPanelFrame):
 			self.Bind(wx.EVT_MENU,
 					  lambda evt, path=path: handler(evt, path),
 					  id=menuId)
+		if (len(paths) > 0):
+			menu.AppendSeparator()
+		menu.Append(clearId, "&Clear Menu", clearHelp)
+		menu.Enable(clearId, len(paths) > 0)
+		self.Bind(wx.EVT_MENU, clearHandler, id=clearId)
+		self.Bind(wx.EVT_UPDATE_UI,
+				  lambda evt, listName=listName: evt.Enable(
+					  len(getattr(self, listName)) > 0),
+				  id=clearId)
 
 

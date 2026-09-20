@@ -1,15 +1,4 @@
-"""The settings each kind of grid offers, one panel per kind.
-
-   What a grid type is made of is its own business here rather than something
-   read off the grid: square cells have a width, a height and an origin; hexes
-   have all that, plus which way up they are and how long their two parallel
-   edges are.
-
-   A hex panel also offers a couple of ties - the width and height held the
-   same, the edge held at half the hex - which are the dialog's own and go no
-   further.  They are ways of setting two numbers at once while a grid is
-   being laid over somebody else's map, not anything the map file has ever
-   heard of."""
+"""The settings each kind of grid offers, one panel per kind."""
 import wx
 
 from .. import hex
