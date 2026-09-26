@@ -220,6 +220,15 @@ class FogMapApp(wx.App):
 		self.__noteImagePaths()
 		self.noteDirty()
 
+	# --- fog ------------------------------------------------------------------
+
+	def resetFog(self):
+		"""Cover the whole of the open map in fog again, as it was when new."""
+		if ((self.doc is None) or (not self.doc.editable)):
+			return
+		self.doc.map.fillFog(False)
+		self.noteDirty()
+
 	# --- secrets --------------------------------------------------------------
 
 	def setSecretImage(self, imagePath):

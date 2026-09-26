@@ -194,6 +194,14 @@ class GMFrame(MapPanelFrame):
 		self.Bind(wx.EVT_MENU, self.onSwapImage, id=106)
 		self.Bind(wx.EVT_UPDATE_UI, self.onEditableDocUpdate, id=106)
 
+		# Fog Menu.  Ids 601+, clear of everything else.
+		fogMenu = wx.Menu()
+		fogMenu.Append(601, "&Reset Fog...",
+					   "Cover the whole map in fog again.")
+		self.Bind(wx.EVT_MENU, self.onResetFog, id=601)
+		self.Bind(wx.EVT_UPDATE_UI, self.onEditableDocUpdate, id=601)
+		self.menuBar.Append(fogMenu, "Fog")
+
 		# Grid Menu
 		gridMenu = wx.Menu()
 		gridMenu.Append(201, "Show Grid", "Toggle display of the current grid.", wx.ITEM_CHECK)
@@ -539,6 +547,20 @@ class GMFrame(MapPanelFrame):
 		
 	def onGridSettingsUpdate(self, evt):
 		evt.Enable(self.hasGrid())
+
+	# --- fog ------------------------------------------------------------------
+
+	def onResetFog(self, evt):
+		# Asked first: there is no undo, and this throws away everything the
+		# players have explored on this map.
+		dlg = wx.MessageDialog(self,
+							   "Cover the whole map in fog again?  Everything "
+							   "revealed so far will be hidden from the players.",
+							   "Reset Fog", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION)
+		result = dlg.ShowModal()
+		dlg.Destroy()
+		if (result == wx.ID_YES):
+			wx.GetApp().resetFog()
 
 	# --- secrets --------------------------------------------------------------
 

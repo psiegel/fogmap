@@ -164,6 +164,11 @@ class Map(object):
 		brush.drawToImage(self.mask, x, y, gfx.MASK_HIDDEN)
 		self.__contentChanged(brush.bounds(x, y))
 
+	def fillFog(self, revealed):
+		"""Reveal, or re-hide, the whole map at one go."""
+		self.mask = gfx.createMask(self.mask.size[0], self.mask.size[1], revealed)
+		self.__contentChanged()
+
 	# --- secrets --------------------------------------------------------------
 	# The UI offers one layer.  A map file holds a list of them, and everything
 	# below works on the list, because which of those two is cheap to change
