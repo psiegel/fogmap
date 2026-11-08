@@ -1,8 +1,9 @@
 import wx
 
 from .. import viewport
+from ..mappanel import PlayerMapPanel
 
-from .inputmode import InputMode, addIconButton
+from .inputmode import BORDER, InputMode, addIconButton
 
 
 class ViewportMode(InputMode):
@@ -40,6 +41,8 @@ class ViewportMode(InputMode):
 		self.fitButton = None
 		self.rotateCcwButton = None
 		self.rotateCwButton = None
+		self.zoomButtons = []
+		self.zoomFont = None
 
 	# --- toolbar --------------------------------------------------------------
 
@@ -55,13 +58,57 @@ class ViewportMode(InputMode):
 		self.rotateCwButton = addIconButton(
 			parent, sizer, "rotate-cw",
 			"Turn the player view a quarter turn clockwise.",
-			self.onRotateCw, border=0)
+			self.onRotateCw, border=BORDER * 4)
+
+		# The zoom slots: numbers rather than icons, because which one is which
+		# is the whole point of them.
+		self.zoomButtons = []
+		for slot in range(PlayerMapPanel.ZOOM_SLOTS):
+			button = wx.Button(parent, -1, str(slot + 1), style=wx.BU_EXACTFIT)
+			button.Bind(wx.EVT_BUTTON, lambda evt, slot=slot: self.onZoomSlot(slot))
+			last = (slot == PlayerMapPanel.ZOOM_SLOTS - 1)
+			sizer.Add(button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+					  0 if last else BORDER)
+			self.zoomButtons.append(button)
+		self.zoomFont = self.zoomButtons[0].GetFont() if self.zoomButtons else None
 
 	def updateControls(self):
 		enable = self.isAvailable() and (self.panel.map != None)
 		for button in (self.fitButton, self.rotateCcwButton, self.rotateCwButton):
 			if (button != None):
 				button.Enable(enable)
+		self.updateZoomButtons(enable)
+
+	def updateZoomButtons(self, enable=None):
+		"""Bold where a zoom is stored, and the tooltip says which."""
+		if (enable is None):
+			enable = self.isAvailable() and (self.panel.map != None)
+		memory = self.playerPanel.zoomMemory if (self.playerPanel != None) else None
+		for slot, button in enumerate(self.zoomButtons):
+			button.Enable(enable)
+			scale = memory[slot] if (memory != None) else None
+			font = wx.Font(self.zoomFont)
+			if (scale is None):
+				button.SetToolTip("Zoom %d: empty.  Click to remember the player "
+								  "view's current zoom here." % (slot + 1))
+			else:
+				font.MakeBold()
+				button.SetToolTip("Zoom %d: %d%%.  Click to zoom the player view "
+								  "to it; Shift+click to remember the current zoom "
+								  "instead." % (slot + 1, round(scale * 100)))
+			button.SetFont(font)
+
+	def onZoomSlot(self, slot):
+		"""Click an empty slot and it takes the current zoom; click a full one
+		   and the player view goes to it.  Shift+click always stores."""
+		player = self.playerPanel
+		if ((player is None) or (self.panel.map is None)):
+			return
+		if ((player.zoomMemory[slot] is None) or wx.GetKeyState(wx.WXK_SHIFT)):
+			player.storeZoom(slot)
+			self.updateZoomButtons()
+		else:
+			player.recallZoom(slot)
 
 	def onFit(self, evt):
 		self.frame.onFitPlayerView(evt)

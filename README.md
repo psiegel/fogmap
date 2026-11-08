@@ -182,6 +182,7 @@ gets the mouse back the moment the key comes up.
 | Drag an edge / corner | Resize the players' visible area |
 | **Fit** button | Zoom the Player View out to the whole map (same as `Ctrl+0`) |
 | **Rotate** buttons | Turn the Player View a quarter turn counter-clockwise / clockwise (same as `Ctrl+Shift+R` / `Ctrl+R`) |
+| **1** / **2** / **3** buttons | Zoom memories, saved with the map. Click an empty one to remember the Player View's current zoom; click a filled (bold) one to jump to it, keeping the same spot centred; `Shift`+click to overwrite |
 | **Secrets mode** | |
 | Left click / drag | Paint a secret into view with the current brush |
 | Right click / drag | Cover it back up |

@@ -14,6 +14,7 @@ class PlayerMapPanel(MapPanel):
 	MOVE_KEYS = (wx.WXK_LEFT, wx.WXK_RIGHT, wx.WXK_UP, wx.WXK_DOWN)
 	MIN_SCALE = 0.05
 	MAX_SCALE = 20.0
+	ZOOM_SLOTS = 3
 
 	def __init__(self, parent):
 		self.scale = 1.0
@@ -24,6 +25,12 @@ class PlayerMapPanel(MapPanel):
 		# the map on screen is always an upright rectangle - which is what the
 		# GM's viewport overlay and everything that draws a box of map relies on.
 		self.rotation = 0
+		# Zoom levels the GM has put by to come back to, one per slot, None
+		# where nothing has been.  Scale only: a zoom is about how much of the
+		# map the players see, and jumping to one leaves them looking at the
+		# same place.  Kept with the map, since the same scale means a
+		# different amount of ground on a map drawn at another resolution.
+		self.zoomMemory = [None] * PlayerMapPanel.ZOOM_SLOTS
 		self.playerPanel = None
 		self.userViewListener = None
 		# Where the GM is pointing, in map pixels, and what colour to draw the
@@ -91,6 +98,24 @@ class PlayerMapPanel(MapPanel):
 
 	def modifyScale(self, increment, refresh=True):
 		self.setScale(self.scale + (self.scale * increment), refresh)
+		self._userViewChanged()
+
+	def clearZoomMemory(self):
+		self.zoomMemory = [None] * PlayerMapPanel.ZOOM_SLOTS
+
+	def storeZoom(self, slot):
+		"""Put the current zoom by in a slot, over whatever was there."""
+		self.zoomMemory[slot] = self.scale
+		self._userViewChanged()
+
+	def recallZoom(self, slot):
+		"""Go back to a stored zoom.  The offset is the map point at the centre
+		   of the window whatever the scale, so leaving it alone is what keeps
+		   the players looking at the same spot."""
+		scale = self.zoomMemory[slot]
+		if (scale is None):
+			return
+		self.setScale(scale)
 		self._userViewChanged()
 
 	def setOffset(self, x, y, refresh=True):
@@ -427,6 +452,12 @@ class PlayerMapPanel(MapPanel):
 				self.setOffset(x, y)
 			elif (child.tag == "rotation"):
 				self.setRotation(int(child.text))
+			elif (child.tag == "zoomMemory"):
+				self.clearZoomMemory()
+				for slot in child:
+					index = int(slot.get("index"))
+					if ((slot.tag == "slot") and (0 <= index < len(self.zoomMemory))):
+						self.zoomMemory[index] = float(slot.get("scale"))
 
 	def writeSettings(self, settings):
 		scale = etree.Element("scale")
@@ -439,3 +470,10 @@ class PlayerMapPanel(MapPanel):
 		rotation = etree.Element("rotation")
 		rotation.text = str(self.rotation)
 		settings.append(rotation)
+
+		# Only the slots that hold something, so an empty one stays empty.
+		memory = etree.Element("zoomMemory")
+		for index, scale in enumerate(self.zoomMemory):
+			if (scale is not None):
+				memory.append(etree.Element("slot", index=str(index), scale=str(scale)))
+		settings.append(memory)

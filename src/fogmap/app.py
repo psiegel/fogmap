@@ -455,6 +455,11 @@ class FogMapApp(wx.App):
 		self.doc.settings = settings
 
 	def __applySettings(self, doc):
+		# The zoom slots belong to the map, so the last one's must not carry
+		# over to a map that never had any.  Everything else in the player
+		# view does carry over, and that is deliberate: it is where the
+		# players were looking.
+		self.playerFrame.panel.clearZoomMemory()
 		if (doc.settings is not None):
 			self.readSettings(doc.settings)
 		elif (not doc.editable):
