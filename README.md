@@ -181,6 +181,7 @@ gets the mouse back the moment the key comes up.
 | Drag | Move the players' visible area |
 | Drag an edge / corner | Resize the players' visible area |
 | **Fit** button | Zoom the Player View out to the whole map (same as `Ctrl+0`) |
+| **Rotate** buttons | Turn the Player View a quarter turn counter-clockwise / clockwise (same as `Ctrl+Shift+R` / `Ctrl+R`) |
 | **Secrets mode** | |
 | Left click / drag | Paint a secret into view with the current brush |
 | Right click / drag | Cover it back up |
@@ -200,6 +201,7 @@ gets the mouse back the moment the key comes up.
 | Alt + drag (either button) | Move the players' visible area |
 | Alt + drag an edge / corner | Resize the players' visible area |
 | `Ctrl+0` | Zoom the Player View out to the whole map |
+| `Ctrl+R` / `Ctrl+Shift+R` | Turn the Player View a quarter turn clockwise / counter-clockwise |
 | `Ctrl+=` / `Ctrl+-` | Zoom the GM map in or out one level |
 | `Ctrl+1` / `Ctrl+9` | GM map at 100% / zoomed out until all of it fits |
 | `Ctrl` + wheel | Zoom the GM map about the point under the cursor |

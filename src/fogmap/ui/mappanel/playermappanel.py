@@ -1,3 +1,5 @@
+import math
+
 import wx
 from lxml import etree
 
@@ -18,6 +20,10 @@ class PlayerMapPanel(MapPanel):
 		self.offset = (0, 0)
 		self.panAnchor = None
 		self.mirror = False
+		# Quarter turns clockwise, 0-3.  Whole quarters only, so the part of
+		# the map on screen is always an upright rectangle - which is what the
+		# GM's viewport overlay and everything that draws a box of map relies on.
+		self.rotation = 0
 		self.playerPanel = None
 		self.userViewListener = None
 		# Where the GM is pointing, in map pixels, and what colour to draw the
@@ -105,9 +111,33 @@ class PlayerMapPanel(MapPanel):
 		self._userViewChanged()
 		self.Refresh()
 
-	def getViewportAspect(self):
-		"""Width / height of the player window, which the GM overlay locks to."""
+	def setRotation(self, quarters, refresh=True):
+		"""Turn the view to `quarters` quarter turns clockwise, about the
+		   centre of the window: whatever the players have in the middle of
+		   the screen stays there."""
+		self.rotation = int(quarters) % 4
+		self._fireViewChanged()
+		if (refresh):
+			self.Refresh()
+
+	def rotate(self, quarters):
+		"""Turn the view by `quarters` quarter turns: 1 clockwise, -1 the other
+		   way.  Clockwise as the player window shows it, mirrored or not."""
+		self.setRotation(self.rotation + quarters)
+		self._userViewChanged()
+
+	def getViewportClientSize(self):
+		"""The window's size measured along the map's own axes: width and
+		   height trade places while the view is turned a quarter either way."""
 		cw, ch = self.GetClientSize()
+		if (self.rotation % 2):
+			return (ch, cw)
+		return (cw, ch)
+
+	def getViewportAspect(self):
+		"""Width / height of the map the player window shows, which the GM
+		   overlay locks to."""
+		cw, ch = self.getViewportClientSize()
 		if (ch <= 0):
 			return None
 		return cw / float(ch)
@@ -116,8 +146,9 @@ class PlayerMapPanel(MapPanel):
 		"""The map-space rectangle currently on screen, as (x, y, w, h).
 
 		   Mirroring flips left and right within the same rectangle, so it does
-		   not affect the result."""
-		cw, ch = self.GetClientSize()
+		   not affect the result.  Rotating by whole quarters keeps it upright,
+		   and only swaps which side of the window its width runs along."""
+		cw, ch = self.getViewportClientSize()
 		if ((self.mapImg is None) or (self.scale <= 0) or (cw <= 0) or (ch <= 0)):
 			return None
 		w = cw / self.scale
@@ -133,7 +164,7 @@ class PlayerMapPanel(MapPanel):
 		   user is False when the app frames a freshly opened image, which is
 		   not a change the GM made and so is nothing to save."""
 		x, y, w, h = rect
-		cw, ch = self.GetClientSize()
+		cw, ch = self.getViewportClientSize()
 		if ((self.mapImg is None) or (w <= 0) or (h <= 0) or (cw <= 0) or (ch <= 0)):
 			return
 		bsz = self.mapImg.GetSize()
@@ -144,37 +175,63 @@ class PlayerMapPanel(MapPanel):
 		if (user):
 			self._userViewChanged()
 
-	def _scaleXY(self, scale=None):
-		"""Horizontal scale is negated while mirrored, so screen deltas still map
-		   back to the part of the image the cursor is actually over."""
+	# cos and sin of each quarter turn, exactly, so a turned view lands on
+	# whole pixels rather than a hair off them.
+	_QUARTER_TURNS = ((1, 0), (0, 1), (-1, 0), (0, -1))
+
+	def _rotationAngle(self):
+		"""Positive is clockwise on screen, y running downwards."""
+		return self.rotation * math.pi / 2.0
+
+	def _linear(self, scale=None):
+		"""The part of the map-to-screen transform that is not a translation,
+		   as a 2x2 matrix ((a, b), (c, d)): scale, then mirror, then turn.
+
+		   Mirroring comes before the turn, so it always flips the map about
+		   the same axis of the map - and clockwise on the buttons is then
+		   clockwise on the player window whether or not it is mirrored."""
 		scale = self.scale if (scale is None) else scale
-		return (-scale if self.mirror else scale, scale)
+		cos, sin = PlayerMapPanel._QUARTER_TURNS[self.rotation]
+		sx = -scale if self.mirror else scale
+		sy = scale
+		return ((cos * sx, -sin * sy),
+				(sin * sx, cos * sy))
+
+	def _screenDeltaToMap(self, dx, dy, scale=None):
+		"""A distance on screen as the distance in map pixels it covers -
+		   which is what lets a drag pull the map along under the cursor
+		   however the view is turned or flipped."""
+		(a, b), (c, d) = self._linear(scale)
+		det = a * d - b * c
+		return ((d * dx - b * dy) / det, (a * dy - c * dx) / det)
 
 	def _mapToScreen(self, mapPt, scale=None, offset=None):
-		scale = self.scale if (scale is None) else scale
 		offset = self.offset if (offset is None) else offset
 		cw, ch = self.GetClientSize()
 		bsz = self.mapImg.GetSize()
-		sx, sy = self._scaleXY(scale)
-		return (cw / 2.0 + sx * (mapPt[0] - bsz.width / 2.0 + offset[0]),
-				ch / 2.0 + sy * (mapPt[1] - bsz.height / 2.0 + offset[1]))
+		(a, b), (c, d) = self._linear(scale)
+		vx = mapPt[0] - bsz.width / 2.0 + offset[0]
+		vy = mapPt[1] - bsz.height / 2.0 + offset[1]
+		return (cw / 2.0 + a * vx + b * vy,
+				ch / 2.0 + c * vx + d * vy)
 
 	def _screenToMap(self, screenPt, scale=None, offset=None):
-		scale = self.scale if (scale is None) else scale
 		offset = self.offset if (offset is None) else offset
 		cw, ch = self.GetClientSize()
 		bsz = self.mapImg.GetSize()
-		sx, sy = self._scaleXY(scale)
-		return ((screenPt[0] - cw / 2.0) / sx + bsz.width / 2.0 - offset[0],
-				(screenPt[1] - ch / 2.0) / sy + bsz.height / 2.0 - offset[1])
+		vx, vy = self._screenDeltaToMap(screenPt[0] - cw / 2.0,
+										screenPt[1] - ch / 2.0, scale)
+		return (vx + bsz.width / 2.0 - offset[0],
+				vy + bsz.height / 2.0 - offset[1])
 
 	def _offsetPinning(self, mapPt, screenPt, scale):
 		"""The offset that lands mapPt exactly on screenPt at the given scale."""
 		cw, ch = self.GetClientSize()
 		bsz = self.mapImg.GetSize()
-		sx, sy = self._scaleXY(scale)
-		return ((screenPt[0] - cw / 2.0) / sx - mapPt[0] + bsz.width / 2.0,
-				(screenPt[1] - ch / 2.0) / sy - mapPt[1] + bsz.height / 2.0)
+		vx, vy = self._screenDeltaToMap(screenPt[0] - cw / 2.0,
+										screenPt[1] - ch / 2.0, scale)
+		return (vx - mapPt[0] + bsz.width / 2.0,
+				vy - mapPt[1] + bsz.height / 2.0)
 
 	def _zoomAbout(self, increment, mapPt, screenPt):
 		newScale = min(max(self.scale + (self.scale * increment),
@@ -212,9 +269,8 @@ class PlayerMapPanel(MapPanel):
 		if (self.panAnchor is None):
 			self.beginPan(screenPt)
 			return
-		sx, sy = self._scaleXY()
-		self.modifyOffset((screenPt[0] - self.panAnchor[0]) / sx,
-						  (screenPt[1] - self.panAnchor[1]) / sy)
+		self.modifyOffset(*self._screenDeltaToMap(screenPt[0] - self.panAnchor[0],
+												  screenPt[1] - self.panAnchor[1]))
 		self.panAnchor = screenPt
 		self._userViewChanged()
 
@@ -289,6 +345,10 @@ class PlayerMapPanel(MapPanel):
 		clientRect = self.GetClientRect()
 		
 		gc.Translate(clientRect.width/2, clientRect.height/2)
+		# Must stay in step with _linear: turn, then mirror, then scale, as
+		# the context applies them - the reverse of the order a point meets them.
+		if (self.rotation):
+			gc.Rotate(self._rotationAngle())
 		if (self.mirror):
 			gc.Scale(-self.scale, self.scale)
 		else:
@@ -365,7 +425,9 @@ class PlayerMapPanel(MapPanel):
 				x = float(child.get("x"))
 				y = float(child.get("y"))
 				self.setOffset(x, y)
-	
+			elif (child.tag == "rotation"):
+				self.setRotation(int(child.text))
+
 	def writeSettings(self, settings):
 		scale = etree.Element("scale")
 		scale.text = str(self.scale)
@@ -373,3 +435,7 @@ class PlayerMapPanel(MapPanel):
 		
 		offset = etree.Element("offset", x=str(self.offset[0]), y=str(self.offset[1]))
 		settings.append(offset)
+
+		rotation = etree.Element("rotation")
+		rotation.text = str(self.rotation)
+		settings.append(rotation)

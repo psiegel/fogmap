@@ -286,6 +286,15 @@ class GMFrame(MapPanelFrame):
 						"Zoom the player view out until the whole map fits.")
 		self.Bind(wx.EVT_MENU, self.onFitPlayerView, id=1002)
 		self.Bind(wx.EVT_UPDATE_UI, self.onPlayerViewUpdate, id=1002)
+		# 1008 and 1009: the last two ids below the mode menu's range.
+		viewMenu.Append(1008, "&Rotate Player View Clockwise\tCTRL+R",
+						"Turn what the players see a quarter turn clockwise.")
+		self.Bind(wx.EVT_MENU, lambda evt: self.onRotatePlayerView(1), id=1008)
+		self.Bind(wx.EVT_UPDATE_UI, self.onPlayerViewUpdate, id=1008)
+		viewMenu.Append(1009, "Rotate Player View &Counter-clockwise\tCTRL+SHIFT+R",
+						"Turn what the players see a quarter turn counter-clockwise.")
+		self.Bind(wx.EVT_MENU, lambda evt: self.onRotatePlayerView(-1), id=1009)
+		self.Bind(wx.EVT_UPDATE_UI, self.onPlayerViewUpdate, id=1009)
 		viewMenu.AppendSeparator()
 		viewMenu.Append(1003, "Zoom &In\tCTRL+=", "Zoom the GM map in one level.")
 		self.Bind(wx.EVT_MENU, self.onZoomIn, id=1003)
@@ -689,6 +698,15 @@ class GMFrame(MapPanelFrame):
 		if (self.hasPlayerView() and (self.panel.map != None)):
 			w, h = self.panel.map.size
 			self.panel.playerPanel.showMapRect((0, 0, w, h))
+
+	def onRotatePlayerView(self, quarters):
+		"""Turn the player view by whole quarters: 1 clockwise, -1 back.
+
+		   Turning swaps which way the players' window runs across the map, so
+		   the outline on the GM map changes shape.  The GM panel hears about
+		   it through the player panel's view listener and redraws it."""
+		if (self.hasPlayerView()):
+			self.panel.playerPanel.rotate(quarters)
 
 	# --- zoom -----------------------------------------------------------------
 

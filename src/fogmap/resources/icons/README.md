@@ -40,6 +40,7 @@ they will unless you reach for another extension.
 | `fade` | In front of Draw mode's fade box |
 | `clear` | Draw mode's wipe-the-layer button |
 | `fit` | Viewport mode's fit-to-map button |
+| `rotate-ccw`, `rotate-cw` | Viewport mode's turn-the-player-view buttons |
 | `zoom-in`, `zoom-out` | Either side of the zoom box, at the right of the toolbar |
 
 ## Light and dark

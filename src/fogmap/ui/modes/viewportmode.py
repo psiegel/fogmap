@@ -38,6 +38,8 @@ class ViewportMode(InputMode):
 		self.base = None
 		self.grabPt = None
 		self.fitButton = None
+		self.rotateCcwButton = None
+		self.rotateCwButton = None
 
 	# --- toolbar --------------------------------------------------------------
 
@@ -45,14 +47,30 @@ class ViewportMode(InputMode):
 		self.fitButton = addIconButton(
 			parent, sizer, "fit",
 			"Zoom the player view out until the whole map fits.",
-			self.onFit, border=0)
+			self.onFit)
+		self.rotateCcwButton = addIconButton(
+			parent, sizer, "rotate-ccw",
+			"Turn the player view a quarter turn counter-clockwise.",
+			self.onRotateCcw)
+		self.rotateCwButton = addIconButton(
+			parent, sizer, "rotate-cw",
+			"Turn the player view a quarter turn clockwise.",
+			self.onRotateCw, border=0)
 
 	def updateControls(self):
-		if (self.fitButton != None):
-			self.fitButton.Enable(self.isAvailable() and (self.panel.map != None))
+		enable = self.isAvailable() and (self.panel.map != None)
+		for button in (self.fitButton, self.rotateCcwButton, self.rotateCwButton):
+			if (button != None):
+				button.Enable(enable)
 
 	def onFit(self, evt):
 		self.frame.onFitPlayerView(evt)
+
+	def onRotateCw(self, evt):
+		self.frame.onRotatePlayerView(1)
+
+	def onRotateCcw(self, evt):
+		self.frame.onRotatePlayerView(-1)
 
 	def isAvailable(self):
 		"""Nothing to frame without a window to frame it for."""
@@ -164,8 +182,10 @@ class ViewportMode(InputMode):
 			aspect = player.getViewportAspect()
 			if (aspect is None):
 				return
-			# Scale limits become width limits, so a drag cannot outrun the zoom range.
-			cw = player.GetClientSize()[0]
+			# Scale limits become width limits, so a drag cannot outrun the zoom
+			# range.  The width along the map, which is the window's height
+			# while the players' view is turned a quarter.
+			cw = player.getViewportClientSize()[0]
 			rect = viewport.resize(self.base, self.handle, pos, aspect,
 								   cw / float(player.MAX_SCALE),
 								   cw / float(player.MIN_SCALE))
